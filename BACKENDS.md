@@ -32,6 +32,7 @@ Not installed: gemini, aider, amp, copilot, droid, goose, crush.
 | No session persistence | `--no-session-persistence` | `--ephemeral` | none | none | none | `--chat-recording=false` |
 | Usage in output | tokens, cost, per-model | tokens | tokens, cost | none | tokens | tokens |
 | Native worktree flag | `-w` | no | no | no | `-w` | `--worktree` |
+| ACP server | adapter only (`claude-code-acp`) | adapter only (`codex-acp`) | `opencode acp` | `kimi acp` | no | `qwen --acp` |
 | Budget/limit flags | `--max-budget-usd` | none | none | none | none | `--max-wall-time`, `--max-tool-calls`, `--max-session-turns` |
 | Prompt via stdin | yes (when `-p` and no positional) | yes (`-` or piped; piped stdin is appended as a `<stdin>` block) | no | no | no | yes (appended to `-p`) |
 
@@ -154,9 +155,27 @@ QWEN_CODE_SUPPRESS_YOLO_WARNING=1 qwen "<prompt>" -o json -y --json-schema @<sch
 - The `stats.bySource` block showed a second API call from `managed-auto-memory-extractor` on the plain probe. `--bare` skips that kind of auto-discovery and is worth using for cheap stages.
 - The `-p` flag is deprecated in favor of a positional prompt.
 
+## ACP (Agent Client Protocol)
+
+Three backends ship a native ACP server: `opencode acp`, `kimi acp`, and `qwen --acp`. ACP is JSON-RPC 2.0 over stdio with newline-delimited messages. I ran the handshake, opened a session, and sent the tool-use prompt to each. All three completed it.
+
+What the protocol gives us, as observed:
+
+- **Handshake.** `initialize` returns `agentCapabilities` (`loadSession`, `promptCapabilities`, `sessionCapabilities` such as `fork`, `resume`, `list`, `close`, and on kimi `additionalDirectories`), `authMethods`, and `agentInfo` with name and version. This doubles as `detect()`.
+- **Session creation.** `session/new` takes `cwd` and `mcpServers` and returns a `sessionId` plus the live configuration surface. Opencode and kimi return `configOptions`: a `model` select listing every available model with the current value, and on kimi also a `thinking` select (low, high, max) and a `mode` select. Qwen returns a `models` object with `currentModelId` and `availableModels` including context limits. This is live model discovery, and for kimi it is the only per-run effort control that exists, since the CLI has no flag.
+- **Prompting.** `session/prompt` with a list of content blocks. The response is `{stopReason: "end_turn", usage?}`. Opencode reports per-turn token usage in the response; qwen puts usage in `_meta` on message chunks and in `usage_update` notifications; kimi only reports context used.
+- **Streaming.** `session/update` notifications with a `sessionUpdate` discriminator: `agent_thought_chunk`, `agent_message_chunk`, `tool_call` (with `toolCallId`, `title`, `kind` such as `execute`, `status`, `rawInput`, `locations`), `tool_call_update` (status transitions to `in_progress` and `completed`, `rawOutput` or `content`), `usage_update`, `available_commands_update`, and `session_info_update`. The shapes were identical across the three backends apart from `_meta` extras.
+- **Final text** is the concatenation of `agent_message_chunk` text between the prompt request and its response.
+- **Permissions.** ACP defines a `session/request_permission` callback the client answers. None of the three sent one because their configs already auto-approve, so auto-approval through ACP is untested here, but it is the protocol's intended mechanism and would give the runtime a uniform bypass that does not depend on per-backend flags or config files.
+- **Not in ACP:** structured output, effort on backends that do not expose it as a config option, and session persistence control. Prompted structured output still applies.
+
+Adapters exist for the other backends but are not installed here: Zed publishes `claude-code-acp` for Claude Code and `codex-acp` for Codex. Codex's own `app-server` is a different JSON-RPC protocol with generated TypeScript bindings and a JSON Schema. Cursor has no ACP surface.
+
+Practical notes: an ACP server is a long-lived process that can host many sessions, so one process per backend with one session per agent is possible and saves startup cost, though a crash then takes every in-flight agent with it. My probe script also left the qwen server running after killing the parent, so drivers must own the process group.
+
 ## Cross-cutting driver implications
 
-1. **Three output families.** Claude, cursor, and qwen share a `system/init ... assistant ... result` shape with a `result.result` final string. Codex and opencode use item or step streams with no terminal result record. Kimi is its own minimal chat-log shape. Three parsers cover all six.
+1. **Two transports, four parsers.** Over the CLI, claude, cursor, and qwen share a `system/init ... assistant ... result` shape with a `result.result` final string, codex and opencode use item or step streams with no terminal result record, and kimi is its own minimal chat-log shape. Over ACP, opencode, kimi, and qwen share one event shape, and adapters could bring claude and codex under it too. The driver interface should be transport-agnostic, with an `acp` transport that covers every ACP-speaking backend with one parser and a `cli` transport with per-backend parsers for the rest. Prefer ACP where a backend has it natively, because it also solves model discovery and kimi's effort and permission gaps.
 2. **Native structured output exists on three backends** (claude, codex, qwen) and each takes the schema differently: inline JSON, a strict-mode file, or either. The runtime normalizes the schema once (add `additionalProperties: false`, fill `required`) and each driver serializes it its own way. The other three use the prompted strategy.
 3. **Effort is not portable.** Five different mechanisms and one backend with none. The driver interface should take the runtime's effort word and map it to a model id suffix, a flag, a config override, or drop it with a warning that `info` predicted.
 4. **Model discovery is live on four backends** (codex catalog, opencode list, kimi config file, cursor list) and static on two (claude aliases, qwen none). `info` should call the live sources and cache them.

@@ -221,6 +221,8 @@ request = {
 
 Drivers wrap each vendor's headless mode: `claude -p --output-format json`, `codex exec`, and the equivalents for OpenCode, Kimi, and Cursor. A driver declares its capabilities so the runtime can pick the best structured-output strategy and warn when a script asks for something a backend cannot do.
 
+Drivers come in two transports. The `cli` transport spawns the vendor binary per agent and parses its JSON output, with a parser per backend. The `acp` transport speaks the Agent Client Protocol (JSON-RPC over stdio) and covers every backend that has an ACP server with one parser, one model-discovery path, and one permission callback. OpenCode, Kimi, and Qwen ship ACP natively, and adapters exist for Claude Code and Codex. Prefer ACP where it is native. BACKENDS.md records what each transport looks like in practice.
+
 ### Structured output across heterogeneous backends
 
 Claude Code forces a tool call. Not every harness exposes that, so the runtime supports two strategies and each driver declares which it uses:
