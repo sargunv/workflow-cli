@@ -40,7 +40,9 @@ try {
     JSON.stringify(detection, null, 2),
     { mode: 0o600 },
   );
-  if (!detection.available) throw Error(detection.notes.join("; "));
+  if (!detection.available) {
+    throw Error(detection.notes.join("; "));
+  }
   const schema =
     detection.structured === "native"
       ? {
@@ -77,8 +79,9 @@ try {
   writeFileSync(join(cwd, "first.json"), JSON.stringify(firstRecord, null, 2), {
     mode: 0o600,
   });
-  if (first.exitInfo.code !== 0 || first.exitInfo.error)
+  if (first.exitInfo.code !== 0 || first.exitInfo.error) {
     throw Error(first.exitInfo.error ?? "First turn failed");
+  }
   if (session) {
     appendFileSync(
       transcript,
@@ -90,8 +93,9 @@ try {
     writeFileSync(join(cwd, "second.json"), JSON.stringify(second, null, 2), {
       mode: 0o600,
     });
-    if (second.exitInfo.code !== 0 || second.exitInfo.error)
+    if (second.exitInfo.code !== 0 || second.exitInfo.error) {
       throw Error(second.exitInfo.error ?? "Second turn failed");
+    }
   }
   process.stdout.write(
     `Probe finished. Inspect results and transcript: ${cwd}\n`,

@@ -70,9 +70,9 @@ async function initializeRepo(cwd: string) {
   await capture("git", ["commit", "-qm", "initial"], cwd);
 }
 void test("integrated execution enforces concurrency, records usage and fully replays", async () => {
-  let active = 0,
-    peak = 0,
-    calls = 0;
+  let active = 0;
+  let peak = 0;
+  let calls = 0;
   const request = await fixture(async (request) => {
     calls++;
     active++;
@@ -133,9 +133,9 @@ void test("structured output retries are bounded and bad outputs never reach scr
 });
 
 void test("session corrections preserve context, per-turn transcripts and cleanup", async () => {
-  let calls = 0,
-    corrections = 0,
-    closed = 0;
+  let calls = 0;
+  let corrections = 0;
+  let closed = 0;
   const request = await fixture(async (invocation) => {
     calls++;
     assert.equal(invocation.keepSession, true);
@@ -188,8 +188,8 @@ void test("session corrections preserve context, per-turn transcripts and cleanu
 });
 
 void test("a failed correction closes its retained session without rerunning the task", async () => {
-  let calls = 0,
-    closed = 0;
+  let calls = 0;
+  let closed = 0;
   const request = await fixture(async () => {
     calls++;
     return {
@@ -224,8 +224,9 @@ void test("cancellation prevents queued spawns and settles active driver work", 
   const controller = new AbortController();
   const request = await fixture(async (request) => {
     calls++;
-    if (calls === 2)
+    if (calls === 2) {
       setImmediate(() => controller.abort(new Error("test cancellation")));
+    }
     await new Promise((resolve) =>
       request.signal.addEventListener("abort", resolve, { once: true }),
     );
@@ -302,8 +303,9 @@ void test("replay waits until a VM has drained runnable promise jobs", async () 
   let calls = 0;
   const request = await fixture(async (request) => {
     calls++;
-    if (request.prompt === "a")
+    if (request.prompt === "a") {
       await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     return { text: request.prompt, exitInfo: { code: 0 } };
   });
   request.source =
@@ -425,11 +427,12 @@ void test("resume reconstructs missing generated children and prefers edited cur
   let calls = 0;
   const request = await fixture(async (invocation) => {
     calls++;
-    if (invocation.prompt === "generate")
+    if (invocation.prompt === "generate") {
       await writeFile(
         join(request.cwd, "generated.js"),
         header + "return agent('inner');",
       );
+    }
     return { text: invocation.prompt, exitInfo: { code: 0 } };
   });
   request.source =
@@ -512,7 +515,9 @@ void test("validation transcript write failure cannot become a successful parall
     return { text: "invalid JSON", exitInfo: { code: 0 } };
   });
   request.onEvent = (event) => {
-    if (event.runId) directory = join(request.root ?? "", event.runId);
+    if (event.runId) {
+      directory = join(request.root ?? "", event.runId);
+    }
   };
   request.source =
     header +
@@ -530,8 +535,9 @@ void test("stop leaves running and queued calls live on resume while intentional
   const request = await fixture(async (task) => {
     calls.push(task.prompt);
     if (stopping && task.prompt !== "seed") {
-      if (++started === 2)
+      if (++started === 2) {
         setImmediate(() => controller.abort(new Error("stop fixture")));
+      }
       await new Promise((resolve) =>
         task.signal.addEventListener("abort", resolve, { once: true }),
       );
@@ -575,7 +581,9 @@ void test("stop leaves running and queued calls live on resume while intentional
     skip = (id) => run.skip(id);
   };
   request.onEvent = (event) => {
-    if (event.type === "agent-started" && event.id) skip(event.id);
+    if (event.type === "agent-started" && event.id) {
+      skip(event.id);
+    }
   };
   const skipped = await runWorkflow(request);
   assert.equal(skipped.status, "completed");

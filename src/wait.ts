@@ -12,7 +12,9 @@ export async function waitForRun(
     signal.throwIfAborted();
     const report = await inspectReport(root, id);
     onProgress(report);
-    if (report.status !== "running") return report;
+    if (report.status !== "running") {
+      return report;
+    }
     await setTimeout(250, undefined, { signal });
   }
 }

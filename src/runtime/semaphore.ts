@@ -4,12 +4,14 @@ interface Waiter {
   signal: AbortSignal;
   abort: () => void;
 }
+
 export class Semaphore {
   private active = 0;
   private queue: Waiter[] = [];
   constructor(private limit: number) {
-    if (!Number.isInteger(limit) || limit < 1)
+    if (!Number.isInteger(limit) || limit < 1) {
       throw new Error("Concurrency must be positive");
+    }
   }
   acquire(signal: AbortSignal): Promise<() => void> {
     signal.throwIfAborted();
@@ -34,13 +36,17 @@ export class Semaphore {
   private release(): () => void {
     let released = false;
     return () => {
-      if (released) return;
+      if (released) {
+        return;
+      }
       released = true;
       const next = this.queue.shift();
       if (next) {
         next.signal.removeEventListener("abort", next.abort);
         next.resolve(this.release());
-      } else this.active--;
+      } else {
+        this.active--;
+      }
     };
   }
 }

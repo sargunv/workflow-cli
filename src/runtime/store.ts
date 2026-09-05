@@ -51,6 +51,7 @@ export const reportSchema = z.object({
   resume: z.string().optional(),
 });
 export type Report = z.infer<typeof reportSchema>;
+
 export function atomicJson(path: string, value: unknown) {
   const temporary = path + ".tmp";
   writeFileSync(temporary, JSON.stringify(value, null, 2) + "\n", {
@@ -59,15 +60,20 @@ export function atomicJson(path: string, value: unknown) {
   });
   renameSync(temporary, path);
 }
+
 export function runPath(root: string, id: string): string {
-  if (!/^wf_[a-z0-9-]{6,}$/.test(id)) throw new Error("Invalid run ID");
+  if (!/^wf_[a-z0-9-]{6,}$/.test(id)) {
+    throw new Error("Invalid run ID");
+  }
   return join(root, id);
 }
+
 export function readReport(root: string, id: string): Report {
   return reportSchema.parse(
     JSON.parse(readFileSync(join(runPath(root, id), "report.json"), "utf8")),
   );
 }
+
 export class RunStore {
   readonly directory: string;
   readonly report: Report;

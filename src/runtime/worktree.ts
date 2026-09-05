@@ -15,6 +15,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { capture } from "../drivers/process.js";
 import type { WorktreeRecord } from "../types.js";
 import { errorText } from "../types.js";
+
 export class WorktreeSetupError extends Error {
   constructor(
     readonly record: WorktreeRecord,
@@ -26,10 +27,12 @@ export class WorktreeSetupError extends Error {
     );
   }
 }
+
 export interface SharedPath {
   path: string;
   mode: "copy" | "symlink";
 }
+
 function inside(root: string, path: string): boolean {
   const rel = relative(root, path);
   return rel !== ".." && !rel.startsWith(".." + sep) && !isAbsolute(rel);
@@ -51,43 +54,46 @@ async function ignoredState(root: string): Promise<string | undefined> {
     .filter((entry) => entry.startsWith("!! "))
     .map((entry) => entry.slice(3))
     .sort();
-  if (!paths.length) return undefined;
+  if (!paths.length) {
+    return undefined;
+  }
   const digest = createHash("sha256");
   const buffer = Buffer.alloc(65536);
   const visit = async (path: string): Promise<void> => {
     const stat = await lstat(path);
+    let kind = "file";
+    if (stat.isSymbolicLink()) {
+      kind = "link";
+    } else if (stat.isDirectory()) {
+      kind = "directory";
+    }
     digest.update(
-      JSON.stringify([
-        relative(root, path),
-        stat.mode & 0o777,
-        stat.isSymbolicLink()
-          ? "link"
-          : stat.isDirectory()
-            ? "directory"
-            : "file",
-      ]) + "\n",
+      JSON.stringify([relative(root, path), stat.mode & 0o777, kind]) + "\n",
     );
     if (stat.isSymbolicLink()) {
       digest.update(JSON.stringify(await readlink(path)) + "\n");
       return;
     }
     if (stat.isDirectory()) {
-      for (const name of (await readdir(path)).sort())
+      for (const name of (await readdir(path)).sort()) {
         await visit(resolve(path, name));
+      }
       return;
     }
-    if (!stat.isFile())
+    if (!stat.isFile()) {
       throw new Error(
         `Cannot safely inspect ignored worktree content: ${path}`,
       );
+    }
     const file = await open(
       path,
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
     try {
       const before = await file.stat();
-      if (!before.isFile())
+      if (!before.isFile()) {
         throw new Error(`Ignored worktree file changed type: ${path}`);
+      }
       digest.update(String(before.size) + "\n");
       let offset = 0;
       while (offset < before.size) {
@@ -97,23 +103,27 @@ async function ignoredState(root: string): Promise<string | undefined> {
           Math.min(buffer.length, before.size - offset),
           offset,
         );
-        if (!bytesRead)
+        if (!bytesRead) {
           throw new Error(
             `Ignored worktree file changed during inspection: ${path}`,
           );
+        }
         digest.update(buffer.subarray(0, bytesRead));
         offset += bytesRead;
       }
       const after = await file.stat();
-      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs)
+      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs) {
         throw new Error(
           `Ignored worktree file changed during inspection: ${path}`,
         );
+      }
     } finally {
       await file.close();
     }
   };
-  for (const path of paths) await visit(resolve(root, path));
+  for (const path of paths) {
+    await visit(resolve(root, path));
+  }
   return digest.digest("hex");
 }
 async function validateCopyTree(
@@ -127,18 +137,23 @@ async function validateCopyTree(
     !inside(root, target) ||
     components.includes(".git") ||
     components.includes(".workflow")
-  )
+  ) {
     throw new Error(
       `Shared path escapes allowed repository content: ${source}`,
     );
-  if (ancestors.has(target))
+  }
+  if (ancestors.has(target)) {
     throw new Error(`Shared directory contains a symlink cycle: ${source}`);
+  }
   const stat = await lstat(target);
-  if (!stat.isDirectory()) return;
+  if (!stat.isDirectory()) {
+    return;
+  }
   const next = new Set(ancestors);
   next.add(target);
-  for (const name of await readdir(target))
+  for (const name of await readdir(target)) {
     await validateCopyTree(root, resolve(target, name), next);
+  }
 }
 async function prepareParent(root: string, destination: string): Promise<void> {
   const components = relative(root, dirname(destination))
@@ -152,13 +167,16 @@ async function prepareParent(root: string, destination: string): Promise<void> {
     } catch (error) {
       if (
         !(error instanceof Error && "code" in error && error.code === "EEXIST")
-      )
+      ) {
         throw error;
+      }
     }
-    if (!inside(root, await realpath(current)))
+    if (!inside(root, await realpath(current))) {
       throw new Error(`Shared path ancestor escapes worktree: ${current}`);
+    }
   }
 }
+
 export async function createWorktree(
   cwd: string,
   runId: string,
@@ -179,12 +197,16 @@ export async function createWorktree(
         .some(
           (part) => part === ".." || part === ".git" || part === ".workflow",
         )
-    )
+    ) {
       throw new Error(`Unsafe worktree shared path: ${shared.path}`);
+    }
     const source = await realpath(resolve(root, shared.path));
-    if (shared.mode === "copy") await validateCopyTree(root, source);
-    if (!inside(root, source))
+    if (shared.mode === "copy") {
+      await validateCopyTree(root, source);
+    }
+    if (!inside(root, source)) {
       throw new Error(`Shared path escapes the repository: ${shared.path}`);
+    }
   }
   await mkdir(dirname(path), { recursive: true });
   const record: WorktreeRecord = { path, branch, base, kept: true };
@@ -192,8 +214,9 @@ export async function createWorktree(
     (await capture("git", ["worktree", "list", "--porcelain", "-z"], root))
       .split("\0")
       .includes(`worktree ${path}`);
-  if (await registered())
+  if (await registered()) {
     throw new Error(`Target worktree is already registered: ${path}`);
+  }
   try {
     await capture(
       "git",
@@ -203,7 +226,9 @@ export async function createWorktree(
   } catch (error) {
     // A checkout hook can fail after Git has registered and populated the tree.
     // Claim only a newly registered target, never a pre-existing worktree.
-    if (await registered()) throw new WorktreeSetupError(record, error);
+    if (await registered()) {
+      throw new WorktreeSetupError(record, error);
+    }
     throw error;
   }
   try {
@@ -220,27 +245,32 @@ export async function createWorktree(
             "code" in error &&
             error.code === "ENOENT"
           )
-        )
+        ) {
           throw error;
+        }
       }
-      if (exists)
+      if (exists) {
         throw new Error(
           `Shared path collides with a tracked file: ${shared.path}`,
         );
+      }
       // Existing tracked symlinks in ancestors must not redirect writes outside.
       await prepareParent(path, destination);
-      if (!inside(path, await realpath(dirname(destination))))
+      if (!inside(path, await realpath(dirname(destination)))) {
         throw new Error(
           `Shared path ancestor escapes worktree: ${shared.path}`,
         );
-      if (shared.mode === "copy")
+      }
+      if (shared.mode === "copy") {
         await cp(resolve(root, shared.path), destination, {
           recursive: true,
           dereference: true,
           errorOnExist: true,
           force: false,
         });
-      else await symlink(resolve(root, shared.path), destination);
+      } else {
+        await symlink(resolve(root, shared.path), destination);
+      }
     }
     record.ignoredBaseline = await ignoredState(path);
   } catch (error) {
@@ -248,6 +278,7 @@ export async function createWorktree(
   }
   return record;
 }
+
 export async function finishWorktree(
   cwd: string,
   record: WorktreeRecord,
@@ -273,10 +304,12 @@ export async function finishWorktree(
     branchTip !== record.base ||
     branch !== record.branch ||
     status
-  )
+  ) {
     return { ...record, kept: true };
-  if ((await ignoredState(record.path)) !== record.ignoredBaseline)
+  }
+  if ((await ignoredState(record.path)) !== record.ignoredBaseline) {
     return { ...record, kept: true };
+  }
   await capture("git", ["worktree", "unlock", record.path], cwd);
   await capture("git", ["worktree", "remove", record.path], cwd);
   await capture("git", ["branch", "-d", record.branch], cwd);

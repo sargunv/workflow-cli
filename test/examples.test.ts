@@ -40,7 +40,9 @@ async function example(
     validateAgent(prompt, opts) {
       assert.equal(typeof prompt, "string");
       const options = agentOptions.parse(opts);
-      if (options.schema) compileSchema(options.schema);
+      if (options.schema) {
+        compileSchema(options.schema);
+      }
     },
     async agent(prompt, opts) {
       assert.equal(typeof prompt, "string");
@@ -48,8 +50,9 @@ async function example(
       calls.push(text);
       const result = respond(text);
       const options = agentOptions.parse(opts);
-      if (result !== null && options.schema)
+      if (result !== null && options.schema) {
         assert.ok(compileSchema(options.schema)(result));
+      }
       return result;
     },
   });
@@ -73,16 +76,20 @@ void test("perspective reviews remain blind and synthesis discloses missing cove
   const output = await example(
     "perspective-diverse-verify",
     { task: "Inspect /repo", claim: "claim" },
-    (prompt): Json =>
-      prompt.includes("Reviews in the same order")
-        ? "synthesis"
-        : prompt.includes("security")
-          ? null
-          : { valid: false, reason: "counterevidence" },
+    (prompt): Json => {
+      if (prompt.includes("Reviews in the same order")) {
+        return "synthesis";
+      }
+      if (prompt.includes("security")) {
+        return null;
+      }
+      return { valid: false, reason: "counterevidence" };
+    },
   );
   assert.equal(output.calls.length, 5);
-  for (const prompt of output.calls.slice(0, 4))
+  for (const prompt of output.calls.slice(0, 4)) {
     assert.ok(!prompt.includes("counterevidence"));
+  }
   assert.ok(output.calls[4]?.includes("counterevidence"));
   assert.ok(output.logs.some((line) => line.includes("1 lenses failed")));
 });
@@ -91,9 +98,12 @@ void test("judge panel handles ties and excludes candidates with incomplete pane
     "judge-panel",
     { task: "Inspect /repo" },
     (prompt): Json => {
-      if (prompt.includes("Independently judge"))
+      if (prompt.includes("Independently judge")) {
         return { score: 8, reason: "Evidence" };
-      if (prompt.includes("failure cases first")) return null;
+      }
+      if (prompt.includes("failure cases first")) {
+        return null;
+      }
       return "proposal";
     },
   );
@@ -157,10 +167,11 @@ void test("multi-modal sweep deduplicates across searchers and retains failed co
     "multi-modal-sweep",
     { task: "Inspect /repo" },
     (prompt): Json => {
-      if (prompt.includes("Search using"))
+      if (prompt.includes("Search using")) {
         return prompt.includes("git history")
           ? null
           : { findings: [{ id: "same", claim: "claim" }] };
+      }
       return { valid: true, reason: "evidence" };
     },
   );

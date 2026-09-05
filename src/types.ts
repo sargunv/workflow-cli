@@ -76,6 +76,7 @@ export interface Usage {
   output: number;
   cost?: number;
 }
+
 export interface DriverEvent {
   type: "activity" | "tool" | "usage" | "warning" | "raw";
   text?: string;
@@ -83,6 +84,7 @@ export interface DriverEvent {
   usage?: Usage;
   raw?: unknown;
 }
+
 export interface DriverRequest {
   prompt: string;
   cwd: string;
@@ -96,6 +98,7 @@ export interface DriverRequest {
   signal: AbortSignal;
   onEvent: (event: DriverEvent) => void;
 }
+
 export interface DriverResult {
   text: string;
   structured?: Json;
@@ -103,18 +106,22 @@ export interface DriverResult {
   exitInfo: { code: number; error?: string };
   session?: DriverSession;
 }
+
 export interface DriverSession {
   prompt(text: string): Promise<DriverResult>;
   close(): Promise<void>;
 }
+
 export class ProcessOwnershipError extends Error {
   override name = "ProcessOwnershipError";
 }
+
 export interface ModelInfo {
   id: string;
   default?: boolean;
   efforts: string[];
 }
+
 export interface Detection {
   name: BackendName;
   available: boolean;
@@ -130,10 +137,12 @@ export interface Detection {
   minimal: boolean;
   usage: boolean;
 }
+
 export interface Driver {
   detect(cwd: string, signal?: AbortSignal): Promise<Detection>;
   run(request: DriverRequest): Promise<DriverResult>;
 }
+
 export interface WorktreeRecord {
   path: string;
   branch: string;
@@ -141,6 +150,7 @@ export interface WorktreeRecord {
   kept: boolean;
   ignoredBaseline?: string;
 }
+
 export const agentRecord = z.object({
   id: z.number().int(),
   kind: z.literal("agent"),
@@ -173,12 +183,16 @@ export const agentRecord = z.object({
     .optional(),
 });
 export type AgentRecord = z.infer<typeof agentRecord>;
+
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
 export function canonical(value: Json): string {
-  if (Array.isArray(value)) return "[" + value.map(canonical).join(",") + "]";
-  if (value !== null && typeof value === "object")
+  if (Array.isArray(value)) {
+    return "[" + value.map(canonical).join(",") + "]";
+  }
+  if (value !== null && typeof value === "object") {
     return (
       "{" +
       Object.keys(value)
@@ -187,5 +201,6 @@ export function canonical(value: Json): string {
         .join(",") +
       "}"
     );
+  }
   return JSON.stringify(value);
 }

@@ -1,9 +1,8 @@
 # Completion tracking
 
-The VISION scope is implemented. Astra and Claude Fable 5.1 independently
-approve full scope completion, code quality, UX quality, and adherence to the
-vision’s authoring and design guidance. Both rechecked the final fixes before
-issuing their affirmative verdicts.
+The initial VISION implementation and its original review evidence are recorded
+below. Those completion reviews did not adequately assess source readability;
+the later readability cleanup has its own changes, validation and reviews.
 
 | Requirement                   | Implementation and evidence                                                                                                                                                                               |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -21,9 +20,10 @@ issuing their affirmative verdicts.
 | Guidance                      | Bundled skill, README, decisions and eight runnable recipes; recipes execute in the real sandbox with controlled outputs for failed votes, ties, deduplication and convergence.                           |
 | Override surfaces             | Documented sandbox, transport, schema strategy and shared worktree paths. Unsupported policies fail explicitly.                                                                                           |
 
-## Validation on 2026-09-05
+## Initial implementation validation on 2026-09-05
 
-- Full offline suite: **81 passed**. No vendor subscriptions were used by tests.
+- Pre-cleanup offline suite: **81 passed**. No vendor subscriptions were used by
+  tests.
 - Local lint/format, TypeScript checks and build passed. Fresh temporary-prefix
   npm installation, bundled docs/examples, skill print and installation,
   foreground QuickJS execution, and background worker/wait all passed. Evidence:
@@ -62,3 +62,34 @@ conditional verdicts.
 The final local build and install checks are complete. Remote CI is configured
 but has not been run. The explicitly deferred budget, harness agentType registry
 and MCP passthrough remain documented design choices, as required by VISION.md.
+
+## Readability cleanup on 2026-09-05
+
+- Separated root coordination from live leaf ownership in `AgentExecution`, and
+  named child preparation and pending-task tracking.
+- Replaced embedded guest/supervisor strings with directly editable source
+  assets; the build syntax-checks and copies them into the package.
+- Separated progress, report preparation/rendering, and installation info. Named
+  ACP configuration and vendor event handlers expose ordering and parsing.
+- Expanded control flow and examples, named judge-panel stages, clarified replay
+  identities, and added lint/format guardrails. The example formatter preserves
+  multiline literal data and is checked for idempotence.
+- Added the [maintenance guide](MAINTENANCE.md) with ownership boundaries,
+  cancellation/replay invariants, asset handling and relevant tests.
+- Local validation: **84/84 offline tests passed**, including the added
+  formatter and CLI info regressions; typecheck, lint/format and package build
+  passed. Fresh temporary-prefix installation exercised the bundled docs, nine
+  scripts, skill print/install, foreground and background QuickJS execution, and
+  an installed fixture agent. Packaged guest/supervisor files match source
+  bytes. The built CLI also passed the offline 100×24 terminal progress
+  exercise. Captures remain in `.workflow/verification/`.
+- [Astra readability review](reviews/astra-readability.md): explicitly approved
+  readability and maintainability with no blockers; independently ran 83 tests
+  before the final CLI info regression was added. Approval was reaffirmed after
+  50 targeted follow-up tests and a final 13-test sandbox recheck.
+- [Claude Fable 5.1 readability review](reviews/fable-readability.md):
+  independently approved both criteria and ran 84 tests. Nonblocking findings
+  were addressed and approval reaffirmed after 66 targeted tests.
+
+The validation above is local evidence; no remote CI result is claimed for these
+changes.

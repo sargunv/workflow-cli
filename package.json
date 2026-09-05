@@ -18,7 +18,7 @@
   "engines": { "node": ">=24" },
   "packageManager": "pnpm@11.25.0",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsx scripts/build.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
     "dev": "tsx src/cli.ts",

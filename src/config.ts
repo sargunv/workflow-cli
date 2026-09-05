@@ -68,11 +68,13 @@ async function readOptional(path: string): Promise<Record<string, unknown>> {
       .record(z.string(), z.unknown())
       .parse(JSON.parse(await readFile(path, "utf8")));
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT")
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return {};
+    }
     throw new Error(`Invalid config ${path}`, { cause: error });
   }
 }
+
 export async function loadConfig(cwd: string): Promise<Config> {
   const global = await readOptional(
     join(

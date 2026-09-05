@@ -11,8 +11,9 @@ export async function firstRunNotice(root: string): Promise<boolean> {
     });
     return true;
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "EEXIST")
+    if (error instanceof Error && "code" in error && error.code === "EEXIST") {
       return false;
+    }
     throw error;
   }
 }

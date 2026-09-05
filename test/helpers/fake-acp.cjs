@@ -19,8 +19,9 @@ let turn = 0;
 let pending;
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
-  if (process.env.WORKFLOW_FIXTURE_ACP_LOG)
+  if (process.env.WORKFLOW_FIXTURE_ACP_LOG) {
     fs.appendFileSync(process.env.WORKFLOW_FIXTURE_ACP_LOG, line + "\n");
+  }
   const reply = (result) => send({ id: message.id, result });
   switch (message.method) {
     case "initialize":
@@ -33,10 +34,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
           ? {
               models: JSON.parse(
                 fs.readFileSync(
-                  process.env.WORKFLOW_FIXTURE_ACP_CONFIGS.replace(
-                    "qwen-model-config.json",
-                    "qwen-session-config.json",
-                  ),
+                  process.env.WORKFLOW_FIXTURE_ACP_SESSION,
                   "utf8",
                 ),
               ).models,
@@ -61,8 +59,9 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     case "session/set_config_option":
       if (config) {
         const { configId, value } = message.params;
-        if (configId === "model") config = configurations[1];
-        else {
+        if (configId === "model") {
+          config = configurations[1];
+        } else {
           const option = config.find((item) => item.id === configId);
           if (!option?.options?.some((item) => item.value === value)) {
             send({

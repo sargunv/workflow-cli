@@ -90,8 +90,9 @@ void test("pipeline has no inter-stage barrier, preserves item/index and catches
       async agent(prompt) {
         const text =
           typeof prompt === "string" ? prompt : JSON.stringify(prompt);
-        if (text === "slow")
+        if (text === "slow") {
           await new Promise((resolve) => setTimeout(resolve, 30));
+        }
         events.push(text);
         return text;
       },
@@ -187,21 +188,34 @@ void test("schema root, satisfiability and original optional-property semantics"
   assert.equal(validate({ x: 2 }), false);
 });
 
-void test("bootstrap closures are not reachable by workflow source", async () => {
+void test("bootstrap closures and temporary host globals are not reachable by workflow source", async () => {
+  const privateNames = [
+    "NativeDate",
+    "dispatch",
+    "validate",
+    "notify",
+    "encode",
+    "pending",
+    "argsJson",
+    "metaJson",
+    "settle",
+    "encodeResult",
+    "__dispatch",
+    "__validate",
+    "__notify",
+    "__argsJson",
+    "__metaJson",
+  ];
+  const expression = privateNames.map((name) => `typeof ${name}`).join(", ");
   assert.deepEqual(
-    await executeScript(
-      source(
-        "return [typeof NativeDate, typeof dispatch, typeof validate, typeof notify, typeof encode, typeof pending]",
-      ),
-      null,
-      host(),
-    ),
-    Array(6).fill("undefined"),
+    await executeScript(source(`return [${expression}]`), null, host()),
+    privateNames.map(() => "undefined"),
   );
 });
 void test("final results reject silent JSON data loss", async () => {
   for (const expression of [
     "({x:undefined})",
+    "(() => { Array.prototype.includes = () => false; return {x:undefined}; })()",
     "({x:NaN})",
     "({f:()=>1})",
     "(()=>1)",

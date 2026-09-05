@@ -14,6 +14,7 @@ harnesses.
 - `test/`: offline behavior tests and recorded protocol fixtures.
 - `DECISIONS.md`: deliberate deviations, rationale, and reversal criteria.
 - `docs/STATUS.md`: implementation and verification tracking.
+- `docs/MAINTENANCE.md`: ownership boundaries, source assets and validation map.
 
 ## Dev tool commands
 

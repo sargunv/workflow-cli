@@ -29,6 +29,7 @@ export class AcpConnection {
   private pending = new Map<number, Pending>();
   private ended = false;
   onUpdate: (params: Record<string, unknown>) => void = () => {};
+
   constructor(
     binary: string,
     argv: string[],
@@ -56,15 +57,21 @@ export class AcpConnection {
       this.pending.clear();
     });
   }
+
   private line(line: string, channel: "stdout" | "stderr") {
     this.emit({ type: "raw", raw: { channel, line } });
-    if (channel !== "stdout") return;
+    if (channel !== "stdout") {
+      return;
+    }
     const message = decode(line);
-    if (!message) return;
+    if (!message) {
+      return;
+    }
     if (typeof message.method === "string") {
       const params = object(message.params);
-      if (message.method === "session/update") this.onUpdate(params);
-      else if (
+      if (message.method === "session/update") {
+        this.onUpdate(params);
+      } else if (
         message.method === "session/request_permission" &&
         message.id !== undefined
       ) {
@@ -81,37 +88,47 @@ export class AcpConnection {
               : { outcome: "cancelled" },
           },
         });
-      } else if (message.id !== undefined)
+      } else if (message.id !== undefined) {
         this.send({
           jsonrpc: "2.0",
           id: message.id,
           error: { code: -32601, message: "Client method not supported" },
         });
+      }
       return;
     }
-    if (typeof message.id !== "number") return;
+    if (typeof message.id !== "number") {
+      return;
+    }
     const pending = this.pending.get(message.id);
-    if (!pending) return;
+    if (!pending) {
+      return;
+    }
     this.pending.delete(message.id);
     clearTimeout(pending.timer);
-    if (message.error)
+    if (message.error) {
       pending.reject(
         new Error(
           string(object(message.error).message) || "ACP request failed",
         ),
       );
-    else pending.resolve(message.result);
+    } else {
+      pending.resolve(message.result);
+    }
   }
+
   private send(message: unknown) {
     this.process.write(JSON.stringify(message) + "\n");
   }
+
   request(
     method: string,
     params: unknown,
     timeoutMs = this.transport.discoveryTimeoutMs,
   ): Promise<unknown> {
-    if (this.ended)
+    if (this.ended) {
       return Promise.reject(new Error("ACP process already exited"));
+    }
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -123,6 +140,7 @@ export class AcpConnection {
       this.send({ jsonrpc: "2.0", id, method, params });
     });
   }
+
   async start(cwd: string) {
     const init = object(
       await this.request("initialize", {
@@ -134,23 +152,29 @@ export class AcpConnection {
         clientInfo: { name: "workflow", version: "0.1.0" },
       }),
     );
-    if (init.protocolVersion !== 1)
+    if (init.protocolVersion !== 1) {
       throw new Error("ACP server does not support protocol version 1");
+    }
     const session = object(
       await this.request("session/new", { cwd, mcpServers: [] }),
     );
-    if (typeof session.sessionId !== "string")
+    if (typeof session.sessionId !== "string") {
       throw new Error(
         "ACP session/new did not return a session ID; authenticate the backend directly",
       );
+    }
     return { init, session };
   }
+
   async close() {
     this.process.stop("ACP session complete");
     const exit = await this.process.exited;
-    if (exit.cleanupUncertain) throw new ProcessOwnershipError(exit.error);
+    if (exit.cleanupUncertain) {
+      throw new ProcessOwnershipError(exit.error);
+    }
   }
 }
+
 function modelOptions(session: Record<string, unknown>): ModelInfo[] {
   const config = array(session.configOptions)
     .map(object)
@@ -173,25 +197,32 @@ function modelOptions(session: Record<string, unknown>): ModelInfo[] {
       };
     })
     .filter((model) => model.id);
-  if (current && !models.some((model) => model.id === current))
+  if (current && !models.some((model) => model.id === current)) {
     models.push({ id: current, default: true, efforts: [] });
+  }
   return models;
 }
+
 export class AcpDriver implements Driver {
   private detection?: Detection;
+
   constructor(
     readonly name: AcpBackend,
     private transport: TransportSettings = defaultTransport,
   ) {}
+
   private argv() {
     return this.name === "qwen" ? ["--acp"] : ["acp"];
   }
+
   async detect(
     cwd: string,
     signal = new AbortController().signal,
   ): Promise<Detection> {
     signal.throwIfAborted();
-    if (this.detection) return this.detection;
+    if (this.detection) {
+      return this.detection;
+    }
     const binary = await findBinary(this.name);
     const detection: Detection = {
       name: this.name,
@@ -233,12 +264,15 @@ export class AcpDriver implements Driver {
             (option) =>
               option.category === "thought_level" || option.id === "thinking",
           );
-        if (effort)
-          for (const model of detection.models)
-            if (model.default)
+        if (effort) {
+          for (const model of detection.models) {
+            if (model.default) {
               model.efforts = array(effort.options)
                 .map((option) => string(object(option).value))
                 .filter((value) => effortSchema.safeParse(value).success);
+            }
+          }
+        }
       } catch (error) {
         detection.available = false;
         detection.notes.push(
@@ -247,7 +281,9 @@ export class AcpDriver implements Driver {
       } finally {
         await connection?.close();
       }
-    } else detection.notes.push(`Install and authenticate ${this.name}`);
+    } else {
+      detection.notes.push(`Install and authenticate ${this.name}`);
+    }
     detection.notes.push(
       "Native ACP: client permission requests auto-approved; no enforceable read-only policy",
       "Backend retains its own sessions",
@@ -256,16 +292,113 @@ export class AcpDriver implements Driver {
     this.detection = detection;
     return detection;
   }
+  /** Each setter can replace the option catalog; keep model → mode → effort order. */
+  private async configureSession(
+    connection: AcpConnection,
+    session: Record<string, unknown>,
+    request: DriverRequest,
+  ) {
+    const sessionId = session.sessionId;
+    let config = array(session.configOptions).map(object);
+    const configure = async (configId: string, value: string) => {
+      const response = object(
+        await connection.request("session/set_config_option", {
+          sessionId,
+          configId,
+          value,
+        }),
+      );
+      const updated = array(response.configOptions).map(object);
+      if (updated.length) {
+        config = updated;
+      }
+      const applied = updated.find((option) => option.id === configId);
+      if (
+        applied?.currentValue !== undefined &&
+        applied.currentValue !== value
+      ) {
+        throw new Error(
+          `${this.name} did not apply ${configId}=${value}; reported ${string(applied.currentValue)}`,
+        );
+      }
+      if (!applied) {
+        request.onEvent({
+          type: "warning",
+          text: `${this.name} acknowledged ${configId}=${value} without reporting its active value`,
+        });
+      }
+    };
+    if (request.model) {
+      const option = config.find(
+        (option) => option.category === "model" || option.id === "model",
+      );
+      if (option) {
+        await configure(string(option.id), request.model);
+      } else {
+        const response = object(
+          await connection.request("session/set_model", {
+            sessionId,
+            modelId: request.model,
+          }),
+        );
+        const current =
+          response.currentModelId ?? object(response.models).currentModelId;
+        if (current !== undefined && current !== request.model) {
+          throw new Error(
+            `${this.name} did not apply requested model ${request.model}; reported ${string(current)}`,
+          );
+        }
+        if (current === undefined) {
+          request.onEvent({
+            type: "warning",
+            text: `${this.name} acknowledged model ${request.model} without reporting its active value`,
+          });
+        }
+      }
+    }
+    const mode = config.find(
+      (option) => option.category === "mode" || option.id === "mode",
+    );
+    if (
+      mode &&
+      array(mode.options).some((option) => object(option).value === "yolo")
+    ) {
+      await configure(string(mode.id), "yolo");
+    }
+    if (request.effort) {
+      const option = config.find(
+        (option) =>
+          option.category === "thought_level" || option.id === "thinking",
+      );
+      if (
+        option &&
+        array(option.options).some(
+          (value) => object(value).value === request.effort,
+        )
+      ) {
+        await configure(string(option.id), request.effort);
+      } else {
+        request.onEvent({
+          type: "warning",
+          text: `${this.name} does not expose effort ${request.effort}; effort was not applied`,
+        });
+      }
+    }
+  }
+
   async run(request: DriverRequest) {
-    if (request.toolPolicy)
+    if (request.toolPolicy) {
       throw new Error(`${this.name} ACP cannot enforce tool policies`);
-    if (request.minimal)
+    }
+    if (request.minimal) {
       throw new Error(`${this.name} ACP cannot suppress instruction loading`);
+    }
     const detection = await this.detect(request.cwd, request.signal);
-    if (!detection.available || !detection.binary)
+    if (!detection.available || !detection.binary) {
       throw new Error(
         `${this.name} unavailable: ${detection.notes.join("; ")}`,
       );
+    }
     const connection = new AcpConnection(
       detection.binary,
       this.argv(),
@@ -280,85 +413,12 @@ export class AcpDriver implements Driver {
       const { session } = await connection.start(request.cwd);
       const sessionId = session.sessionId;
       connection.onUpdate = (params) => {
-        if (params.sessionId !== sessionId) return;
+        if (params.sessionId !== sessionId) {
+          return;
+        }
         parser.update(object(params.update));
       };
-      let config = array(session.configOptions).map(object);
-      const configure = async (configId: string, value: string) => {
-        const response = object(
-          await connection.request("session/set_config_option", {
-            sessionId,
-            configId,
-            value,
-          }),
-        );
-        const updated = array(response.configOptions).map(object);
-        if (updated.length) config = updated;
-        const applied = updated.find((option) => option.id === configId);
-        if (
-          applied?.currentValue !== undefined &&
-          applied.currentValue !== value
-        )
-          throw new Error(
-            `${this.name} did not apply ${configId}=${value}; reported ${string(applied.currentValue)}`,
-          );
-        if (!applied)
-          request.onEvent({
-            type: "warning",
-            text: `${this.name} acknowledged ${configId}=${value} without reporting its active value`,
-          });
-      };
-      if (request.model) {
-        const option = config.find(
-          (option) => option.category === "model" || option.id === "model",
-        );
-        if (option) await configure(string(option.id), request.model);
-        else {
-          const response = object(
-            await connection.request("session/set_model", {
-              sessionId,
-              modelId: request.model,
-            }),
-          );
-          const current =
-            response.currentModelId ?? object(response.models).currentModelId;
-          if (current !== undefined && current !== request.model)
-            throw new Error(
-              `${this.name} did not apply requested model ${request.model}; reported ${string(current)}`,
-            );
-          if (current === undefined)
-            request.onEvent({
-              type: "warning",
-              text: `${this.name} acknowledged model ${request.model} without reporting its active value`,
-            });
-        }
-      }
-      const mode = config.find(
-        (option) => option.category === "mode" || option.id === "mode",
-      );
-      if (
-        mode &&
-        array(mode.options).some((option) => object(option).value === "yolo")
-      )
-        await configure(string(mode.id), "yolo");
-      if (request.effort) {
-        const option = config.find(
-          (option) =>
-            option.category === "thought_level" || option.id === "thinking",
-        );
-        if (
-          option &&
-          array(option.options).some(
-            (value) => object(value).value === request.effort,
-          )
-        )
-          await configure(string(option.id), request.effort);
-        else
-          request.onEvent({
-            type: "warning",
-            text: `${this.name} does not expose effort ${request.effort}; effort was not applied`,
-          });
-      }
+      await this.configureSession(connection, session, request);
       const prompt = async (textPrompt: string): Promise<DriverResult> => {
         connection.process.resetTimeout(this.transport.agentTimeoutMs);
         parser.reset();
@@ -391,7 +451,9 @@ export class AcpDriver implements Driver {
       }
       return result;
     } finally {
-      if (!retained) await connection.close();
+      if (!retained) {
+        await connection.close();
+      }
     }
   }
 }

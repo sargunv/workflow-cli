@@ -14,8 +14,8 @@ return pipeline(['A','B'], x => agent(x), x => agent('verify-' + x));`);
 void test("replay preserves reversed completion order through no-barrier pipeline", async () => {
   const dir = await mkdtemp(join(tmpdir(), "workflow-replay-"));
   const first = new Replay(join(dir, "first.jsonl"));
-  const originalCalls: string[] = [],
-    replayCalls: string[] = [];
+  const originalCalls: string[] = [];
+  const replayCalls: string[] = [];
   const run = (replay: Replay, calls: string[]) =>
     executeScript(script, null, {
       validateAgent() {},
@@ -32,8 +32,9 @@ void test("replay preserves reversed completion order through no-barrier pipelin
             calls.push(
               typeof prompt === "string" ? prompt : JSON.stringify(prompt),
             );
-            if (prompt === "A")
+            if (prompt === "A") {
               await new Promise((resolve) => setTimeout(resolve, 20));
+            }
             return prompt;
           },
         );
@@ -52,15 +53,17 @@ void test("replay preserves reversed completion order through no-barrier pipelin
 void test("first mismatch permanently invalidates suffix, including repeated old calls", async () => {
   const dir = await mkdtemp(join(tmpdir(), "workflow-replay-"));
   const first = new Replay(join(dir, "first.jsonl"));
-  for (const key of ["one", "two", "three"])
+  for (const key of ["one", "two", "three"]) {
     await first.call(key, async () => key);
+  }
   const second = new Replay(
     join(dir, "second.jsonl"),
     readTrace(join(dir, "first.jsonl")),
   );
   const results = [];
-  for (const key of ["one", "changed", "three"])
+  for (const key of ["one", "changed", "three"]) {
     results.push(await second.call(key, async () => key));
+  }
   assert.deepEqual(
     results.map((result) => result.cached),
     [true, false, false],

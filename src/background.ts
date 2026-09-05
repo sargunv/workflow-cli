@@ -41,6 +41,7 @@ export interface LaunchResult extends LaunchReply {
   warning?: string;
   logsDirectory?: string;
 }
+
 export async function launchBackground(
   cliPath: string,
   launch: Launch,
@@ -50,8 +51,8 @@ export async function launchBackground(
   await writeFile(join(temporary, "launch.json"), JSON.stringify(launch), {
     mode: 0o600,
   });
-  const stdout = openSync(join(temporary, "stdout.log"), "wx", 0o600),
-    stderr = openSync(join(temporary, "stderr.log"), "wx", 0o600);
+  const stdout = openSync(join(temporary, "stdout.log"), "wx", 0o600);
+  const stderr = openSync(join(temporary, "stderr.log"), "wx", 0o600);
   const worker = fork(cliPath, ["__worker", temporary], {
     cwd: launch.cwd,
     detached: true,
@@ -60,11 +61,11 @@ export async function launchBackground(
   closeSync(stdout);
   closeSync(stderr);
   return new Promise((resolve, reject) => {
-    let done = false,
-      cancelling: Error | undefined,
-      location = temporary;
-    let escalation: NodeJS.Timeout | undefined,
-      kill: NodeJS.Timeout | undefined;
+    let done = false;
+    let cancelling: Error | undefined;
+    let location = temporary;
+    let escalation: NodeJS.Timeout | undefined;
+    let kill: NodeJS.Timeout | undefined;
     const timer = setTimeout(
       () =>
         cancel(
@@ -80,7 +81,9 @@ export async function launchBackground(
       clearTimeout(kill);
     };
     const rejectStopped = (error: Error) => {
-      if (done) return;
+      if (done) {
+        return;
+      }
       done = true;
       clear();
       reject(
@@ -91,16 +94,23 @@ export async function launchBackground(
       );
     };
     const cancel = (error: Error) => {
-      if (done || cancelling) return;
+      if (done || cancelling) {
+        return;
+      }
       cancelling = error;
       clearTimeout(timer);
-      if (worker.connected) worker.send({ type: "cancel-startup" }, () => {});
+      if (worker.connected) {
+        worker.send({ type: "cancel-startup" }, () => {});
+      }
       escalation = setTimeout(() => worker.kill("SIGTERM"), 3000);
       kill = setTimeout(() => worker.kill("SIGKILL"), 5000);
     };
     worker.once("error", (error) => {
-      if (worker.pid) cancel(error);
-      else rejectStopped(error);
+      if (worker.pid) {
+        cancel(error);
+      } else {
+        rejectStopped(error);
+      }
     });
     worker.once("exit", (code, signal) =>
       rejectStopped(
@@ -110,8 +120,45 @@ export async function launchBackground(
           ),
       ),
     );
+    async function finishLaunch(reply: LaunchReply) {
+      const result: LaunchResult = { ...reply };
+      try {
+        // Open descriptors survive rename; ongoing output follows the file.
+        await rename(
+          join(temporary, "stdout.log"),
+          join(reply.directory, "stdout.log"),
+        );
+        await rename(
+          join(temporary, "stderr.log"),
+          join(reply.directory, "stderr.log"),
+        );
+        await rm(temporary, { recursive: true });
+      } catch {
+        // A diagnostics move cannot turn a successfully started run into an
+        // unacknowledged orphan. Return its identity and the retained log path.
+        result.warning =
+          "Some startup logs could not be moved into the run directory";
+        result.logsDirectory = temporary;
+      }
+      if (worker.connected) {
+        worker.disconnect();
+      }
+      worker.unref();
+      if (reply.type === "failed") {
+        reject(
+          new Error(
+            `${reply.error ?? "Launch failed"}\nRun: ${reply.runId}\nDetails: ${reply.directory}\nStartup logs: ${result.logsDirectory ?? reply.directory}`,
+          ),
+        );
+      } else {
+        resolve(result);
+      }
+    }
+
     worker.on("message", (message: unknown) => {
-      if (done) return;
+      if (done) {
+        return;
+      }
       const parsed = replySchema.safeParse(message);
       if (!parsed.success) {
         cancel(new Error("Invalid background launch acknowledgement"));
@@ -119,52 +166,28 @@ export async function launchBackground(
       }
       const reply = parsed.data;
       location = reply.directory;
-      if (reply.type === "starting" || cancelling) return;
+      if (reply.type === "starting" || cancelling) {
+        return;
+      }
       done = true;
       clear();
-      void (async () => {
-        const result: LaunchResult = { ...reply };
-        try {
-          // Open descriptors survive rename; ongoing output follows the file.
-          await rename(
-            join(temporary, "stdout.log"),
-            join(reply.directory, "stdout.log"),
-          );
-          await rename(
-            join(temporary, "stderr.log"),
-            join(reply.directory, "stderr.log"),
-          );
-          await rm(temporary, { recursive: true });
-        } catch {
-          // A diagnostics move cannot turn a successfully started run into an
-          // unacknowledged orphan. Return its identity and the retained log path.
-          result.warning =
-            "Some startup logs could not be moved into the run directory";
-          result.logsDirectory = temporary;
-        }
-        if (worker.connected) worker.disconnect();
-        worker.unref();
-        if (reply.type === "failed")
-          reject(
-            new Error(
-              `${reply.error ?? "Launch failed"}\nRun: ${reply.runId}\nDetails: ${reply.directory}\nStartup logs: ${result.logsDirectory ?? reply.directory}`,
-            ),
-          );
-        else resolve(result);
-      })().catch(reject);
+      void finishLaunch(reply).catch(reject);
     });
   });
 }
+
 export async function readLaunch(directory: string): Promise<Launch> {
   return launchSchema.parse(
     JSON.parse(await readFile(join(directory, "launch.json"), "utf8")),
   );
 }
+
 export function notifyLauncher(reply: LaunchReply): Promise<void> {
-  if (!process.send || !process.connected)
+  if (!process.send || !process.connected) {
     return Promise.reject(
       new Error("Background worker requires its launcher IPC connection"),
     );
+  }
   return new Promise((resolve, reject) =>
     process.send?.(reply, (error) => (error ? reject(error) : resolve())),
   );

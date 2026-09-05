@@ -20,8 +20,9 @@ void test("recorded Claude stream yields native structured output and tool usage
     )
   )
     .trim()
-    .split("\n"))
+    .split("\n")) {
     parser.line(line, "stdout");
+  }
   const result = parser.finish(0);
   assert.equal(result.exitInfo.error, undefined);
   assert.deepEqual(result.structured, {
@@ -46,8 +47,9 @@ void test("recorded native ACP streams retain only each turn's final answer and 
       .split("\n");
     for (const line of records) {
       const event = JSON.parse(line);
-      if (event.method === "session/update")
+      if (event.method === "session/update") {
         parser.update(object(event.params.update));
+      }
       if (event.result?.stopReason) {
         turns.push(parser.finish(object(event.result)));
         parser.reset();
@@ -63,16 +65,17 @@ void test("recorded native ACP streams retain only each turn's final answer and 
       1,
       backend,
     );
-    if (backend === "opencode")
+    if (backend === "opencode") {
       assert.deepEqual(
         turns.map((turn) => turn.usage?.output),
         [9, 10],
       );
-    else
+    } else {
       assert.ok(
         turns.every((turn) => turn.usage === undefined),
         "context occupancy must not become token usage",
       );
+    }
   }
 });
 
@@ -86,8 +89,9 @@ void test("recorded Codex and Cursor streams report vendor final text and usage"
       )
     )
       .trim()
-      .split("\n"))
+      .split("\n")) {
       parser.line(line, "stdout");
+    }
     const result = parser.finish(0);
     assert.equal(result.exitInfo.error, undefined);
     assert.deepEqual(parseStructured(result.text), { code: 731 });
@@ -136,7 +140,9 @@ void test("recorded Claude read-only policy retains its native output tool", asy
   const init = JSON.parse(events[0] ?? "null");
   assert.deepEqual(init.tools, ["Glob", "Grep", "Read", "StructuredOutput"]);
   const parser = new CliEventParser("claude", () => {});
-  for (const line of events) parser.line(line, "stdout");
+  for (const line of events) {
+    parser.line(line, "stdout");
+  }
   assert.deepEqual(parser.finish(0).structured, { ok: true });
 });
 
@@ -199,11 +205,17 @@ void test("Claude minimal capability requires explicit API-key authentication", 
         true,
       );
     } finally {
-      if (path === undefined) delete process.env.PATH;
-      else process.env.PATH = path;
+      if (path === undefined) {
+        delete process.env.PATH;
+      } else {
+        process.env.PATH = path;
+      }
     }
   } finally {
-    if (previous === undefined) delete process.env.ANTHROPIC_API_KEY;
-    else process.env.ANTHROPIC_API_KEY = previous;
+    if (previous === undefined) {
+      delete process.env.ANTHROPIC_API_KEY;
+    } else {
+      process.env.ANTHROPIC_API_KEY = previous;
+    }
   }
 });

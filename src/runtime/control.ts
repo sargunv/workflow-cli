@@ -32,6 +32,7 @@ interface ControlTarget {
   cancel: () => void;
   skip: (id: number) => void;
 }
+
 export async function startControl(
   directory: string,
   target: ControlTarget,
@@ -44,16 +45,20 @@ export async function startControl(
     socket.on("error", () => {});
     socket.setTimeout(2000, () => socket.destroy());
     socket.setEncoding("utf8");
-    let input = "",
-      answered = false;
+    let input = "";
+    let answered = false;
     socket.on("data", (chunk: string) => {
-      if (answered) return;
+      if (answered) {
+        return;
+      }
       input += chunk;
       if (input.length > 4096) {
         socket.destroy();
         return;
       }
-      if (!input.includes("\n")) return;
+      if (!input.includes("\n")) {
+        return;
+      }
       answered = true;
       let action: ControlAction;
       try {
@@ -65,10 +70,13 @@ export async function startControl(
           })
           .strict()
           .parse(JSON.parse(input.slice(0, input.indexOf("\n"))));
-        if (!timingSafeEqual(Buffer.from(request.token), Buffer.from(token)))
+        if (!timingSafeEqual(Buffer.from(request.token), Buffer.from(token))) {
           throw new Error("Invalid control credentials");
+        }
         action = request.command;
-        if (action.action === "skip") target.skip(action.id);
+        if (action.action === "skip") {
+          target.skip(action.id);
+        }
       } catch (error) {
         socket.end(
           JSON.stringify({
@@ -83,7 +91,9 @@ export async function startControl(
       socket.end(
         JSON.stringify({ ok: true, runId: target.runId }) + "\n",
         () => {
-          if (action.action === "stop") target.cancel();
+          if (action.action === "stop") {
+            target.cancel();
+          }
         },
       );
     });
@@ -96,8 +106,9 @@ export async function startControl(
     });
   });
   const address = server.address();
-  if (!address || typeof address === "string")
+  if (!address || typeof address === "string") {
     throw new Error("Run control did not bind a local port");
+  }
   try {
     atomicJson(join(directory, "control.json"), {
       port: address.port,
@@ -110,10 +121,13 @@ export async function startControl(
   }
   return () =>
     new Promise<void>((resolve, reject) => {
-      for (const socket of sockets) socket.destroy();
+      for (const socket of sockets) {
+        socket.destroy();
+      }
       server.close((error) => (error ? reject(error) : resolve()));
     });
 }
+
 export async function controlRun(
   root: string,
   id: string,
@@ -122,18 +136,24 @@ export async function controlRun(
   const endpoint = endpointSchema.parse(
     JSON.parse(await readFile(join(runPath(root, id), "control.json"), "utf8")),
   );
-  if (endpoint.runId !== id)
+  if (endpoint.runId !== id) {
     throw new Error("Control endpoint belongs to another run");
+  }
   return new Promise<void>((resolve, reject) => {
     const socket = createConnection({ host: "127.0.0.1", port: endpoint.port });
-    let input = "",
-      complete = false;
+    let input = "";
+    let complete = false;
     const finish = (error?: unknown) => {
-      if (complete) return;
+      if (complete) {
+        return;
+      }
       complete = true;
       socket.destroy();
-      if (error) reject(error);
-      else resolve();
+      if (error) {
+        reject(error);
+      } else {
+        resolve();
+      }
     };
     socket.setTimeout(2000, () =>
       finish(
@@ -155,29 +175,36 @@ export async function controlRun(
         finish(new Error("Invalid run control response"));
         return;
       }
-      if (!input.includes("\n")) return;
+      if (!input.includes("\n")) {
+        return;
+      }
       try {
         const response = responseSchema.parse(
           JSON.parse(input.slice(0, input.indexOf("\n"))),
         );
-        if (response.runId !== id || !response.ok)
+        if (response.runId !== id || !response.ok) {
           throw new Error(response.error ?? "Run control identity mismatch");
+        }
         finish();
       } catch (error) {
         finish(error);
       }
     });
     socket.on("end", () => {
-      if (!complete)
+      if (!complete) {
         finish(
           new Error("Run control closed without acknowledging the command"),
         );
+      }
     });
   });
 }
+
 export async function inspectReport(root: string, id: string): Promise<Report> {
   const report = readReport(root, id);
-  if (report.status !== "running") return report;
+  if (report.status !== "running") {
+    return report;
+  }
   try {
     await controlRun(root, id, { action: "ping" });
     return readReport(root, id);
@@ -189,7 +216,9 @@ export async function inspectReport(root: string, id: string): Promise<Report> {
       error.code === "ECONNREFUSED"
     ) {
       const current = readReport(root, id);
-      if (current.status !== "running") return current;
+      if (current.status !== "running") {
+        return current;
+      }
       return {
         ...current,
         status: "interrupted",
@@ -204,13 +233,14 @@ export async function inspectReport(root: string, id: string): Promise<Report> {
         processError instanceof Error &&
         "code" in processError &&
         processError.code === "ESRCH"
-      )
+      ) {
         return {
           ...report,
           status: "interrupted",
           error:
             "The run process exited before saving a terminal report. Inspect journals and retained worktrees before resuming.",
         };
+      }
     }
     return { ...report, observation: errorText(error) };
   }

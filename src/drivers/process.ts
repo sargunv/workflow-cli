@@ -3,11 +3,15 @@ import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
+import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
 import { errorText, ProcessOwnershipError } from "../types.js";
-import { supervisorSource } from "./supervisor.js";
+
+const supervisorPath = fileURLToPath(
+  new URL("./supervisor.cjs", import.meta.url),
+);
 
 const backendExitSchema = z.object({
   type: z.literal("backend-exit"),
@@ -18,7 +22,9 @@ const backendExitSchema = z.object({
 
 export async function findBinary(name: string): Promise<string | undefined> {
   for (const directory of (process.env.PATH ?? "").split(delimiter)) {
-    if (!directory) continue;
+    if (!directory) {
+      continue;
+    }
     const path = join(directory, name);
     try {
       await access(path, constants.X_OK);
@@ -29,6 +35,7 @@ export async function findBinary(name: string): Promise<string | undefined> {
   }
   return undefined;
 }
+
 export interface ProcessOptions {
   cwd: string;
   signal: AbortSignal;
@@ -36,12 +43,14 @@ export interface ProcessOptions {
   onLine?: (line: string, channel: "stdout" | "stderr") => void;
   env?: NodeJS.ProcessEnv;
 }
+
 export interface ProcessExit {
   code: number;
   stderr: string;
   error?: string;
   cleanupUncertain?: boolean;
 }
+
 export class ManagedProcess {
   readonly child;
   readonly exited: Promise<ProcessExit>;
@@ -50,22 +59,20 @@ export class ManagedProcess {
   private killTimer: NodeJS.Timeout | undefined;
   private forcedGroupKill = false;
   private deadline: NodeJS.Timeout | undefined;
+
   constructor(binary: string, argv: string[], options: ProcessOptions) {
     options.signal.throwIfAborted();
-    if (process.platform === "win32")
+    if (process.platform === "win32") {
       throw new Error(
         "Windows process-tree ownership is not implemented; use WSL",
       );
-    this.child = spawn(
-      process.execPath,
-      ["-e", supervisorSource, "--", binary, ...argv],
-      {
-        cwd: options.cwd,
-        stdio: ["pipe", "pipe", "pipe", "ipc"],
-        detached: true,
-        env: { ...process.env, ...options.env },
-      },
-    );
+    }
+    this.child = spawn(process.execPath, [supervisorPath, binary, ...argv], {
+      cwd: options.cwd,
+      stdio: ["pipe", "pipe", "pipe", "ipc"],
+      detached: true,
+      env: { ...process.env, ...options.env },
+    });
     let stderr = "";
     this.resetTimeout(options.timeoutMs ?? 900_000);
     const abort = () =>
@@ -82,16 +89,18 @@ export class ManagedProcess {
         while ((end = pending.indexOf("\n")) >= 0) {
           const line = pending.slice(0, end);
           pending = pending.slice(end + 1);
-          if (channel === "stderr")
+          if (channel === "stderr") {
             stderr = (stderr + line + "\n").slice(-8192);
+          }
           try {
             options.onLine?.(line, channel);
           } catch (error) {
             this.stop(`Stream handler failed: ${errorText(error)}`);
           }
         }
-        if (pending.length > 16 * 1024 * 1024)
+        if (pending.length > 16 * 1024 * 1024) {
           this.stop("Backend emitted a record larger than 16 MiB");
+        }
       };
       this.child[channel]?.on("data", (chunk: Buffer) =>
         consume(decoder.write(chunk)),
@@ -110,16 +119,17 @@ export class ManagedProcess {
       let settled = false;
       this.child.on("message", (message: unknown) => {
         const parsed = backendExitSchema.safeParse(message);
-        if (!parsed.success) return;
+        if (!parsed.success) {
+          return;
+        }
         const value = parsed.data;
+        let error = value.error;
+        if (error === undefined && typeof value.signal === "string") {
+          error = `Backend exited on ${value.signal}`;
+        }
         backendExit = {
           code: typeof value.code === "number" ? value.code : 1,
-          error:
-            typeof value.error === "string"
-              ? value.error
-              : typeof value.signal === "string"
-                ? `Backend exited on ${value.signal}`
-                : undefined,
+          error,
         };
       });
       this.child.once("error", (error) => {
@@ -130,7 +140,9 @@ export class ManagedProcess {
         signal: NodeJS.Signals | null,
         drainError?: string,
       ) => {
-        if (settled) return;
+        if (settled) {
+          return;
+        }
         settled = true;
         clearTimeout(this.deadline);
         clearTimeout(this.killTimer);
@@ -139,6 +151,9 @@ export class ManagedProcess {
         this.stopped = true;
         resolve({
           code: drainError ? 1 : (backendExit?.code ?? 1),
+          // A drain timeout may mean an escaped descendant still owns pipes.
+          // Without a backend report, failed spawn, or our forced group kill,
+          // an unexpected supervisor exit cannot prove its descendants exited.
           cleanupUncertain:
             !!drainError ||
             (!backendExit && !spawnError && !this.forcedGroupKill),
@@ -170,45 +185,61 @@ export class ManagedProcess {
       });
     });
   }
+
   write(value: string) {
-    if (!this.stopped) this.child.stdin?.write(value);
+    if (!this.stopped) {
+      this.child.stdin?.write(value);
+    }
   }
+
   resetTimeout(timeoutMs: number) {
-    if (this.stopped) throw new Error("Backend process already stopped");
+    if (this.stopped) {
+      throw new Error("Backend process already stopped");
+    }
     clearTimeout(this.deadline);
     this.deadline = setTimeout(
       () => this.stop(`Backend timed out after ${timeoutMs}ms`),
       timeoutMs,
     );
   }
+
   end(value = "") {
     this.child.stdin?.end(value);
   }
+
   private kill(signal: NodeJS.Signals) {
     // Signal only while our direct child still anchors this process group.
     if (
       this.child.pid &&
       this.child.exitCode === null &&
       this.child.signalCode === null
-    )
+    ) {
       try {
         process.kill(-this.child.pid, signal);
-        if (signal === "SIGKILL") this.forcedGroupKill = true;
+        if (signal === "SIGKILL") {
+          this.forcedGroupKill = true;
+        }
       } catch (error) {
         if (
           !(error instanceof Error && "code" in error && error.code === "ESRCH")
-        )
+        ) {
           this.child.kill(signal);
+        }
       }
+    }
   }
+
   stop(reason = "Backend stopped") {
-    if (this.stopped) return;
+    if (this.stopped) {
+      return;
+    }
     this.stopped = true;
     this.abortReason = reason;
     this.kill("SIGTERM");
     this.killTimer = setTimeout(() => this.kill("SIGKILL"), 1000);
   }
 }
+
 export async function capture(
   binary: string,
   argv: string[],
@@ -224,15 +255,19 @@ export async function capture(
     onLine(line, channel) {
       if (channel === "stdout") {
         output += line + "\n";
-        if (output.length > 4 * 1024 * 1024)
+        if (output.length > 4 * 1024 * 1024) {
           throw new Error("Discovery output exceeded 4 MiB");
+        }
       }
     },
   });
   process.end();
   const exit = await process.exited;
-  if (exit.cleanupUncertain) throw new ProcessOwnershipError(exit.error);
-  if (exit.code !== 0 || exit.error)
+  if (exit.cleanupUncertain) {
+    throw new ProcessOwnershipError(exit.error);
+  }
+  if (exit.code !== 0 || exit.error) {
     throw new Error(exit.error ?? exit.stderr ?? `Exited ${exit.code}`);
+  }
   return output.trim();
 }

@@ -13,7 +13,7 @@
     "VISION.md",
     "BACKENDS.md",
     "test/fixtures/**",
-    "examples/**"
+    "examples/*.js"
   ],
   "plugins": [
     "npm:@dprint/json@0.23.0",

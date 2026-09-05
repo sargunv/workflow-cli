@@ -17,11 +17,13 @@ export async function readTranscript(
   agentId: number,
   visited = new Set<string>(),
 ): Promise<string> {
-  if (!Number.isInteger(agentId) || agentId < 1)
+  if (!Number.isInteger(agentId) || agentId < 1) {
     throw new Error("Agent ID must be positive");
+  }
   const key = `${runId}/${agentId}`;
-  if (visited.has(key) || visited.size >= 100)
+  if (visited.has(key) || visited.size >= 100) {
     throw new Error("Invalid or excessively deep cached transcript lineage");
+  }
   visited.add(key);
   const text = await readFile(
     join(runPath(root, runId), "transcripts", `${agentId}.jsonl`),
@@ -36,7 +38,7 @@ export async function readTranscript(
       return text;
     }
     const link = cacheLink.safeParse(value);
-    if (link.success)
+    if (link.success) {
       return (
         text +
         (await readTranscript(
@@ -46,6 +48,7 @@ export async function readTranscript(
           visited,
         ))
       );
+    }
   }
   return text;
 }

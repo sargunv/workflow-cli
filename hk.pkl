@@ -2,8 +2,13 @@ amends "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Config.
 import "package://github.com/jdx/hk/releases/download/v1.57.0/hk@1.57.0#/Builtins.pkl"
 local lintSteps = new Mapping<String, Step> {
   ["dprint"] = (Builtins.dprint)
+  ["workflow-examples"] {
+    glob = List("examples/*.js")
+    check = "pnpm exec tsx scripts/format-examples.ts --check"
+    fix = "pnpm exec tsx scripts/format-examples.ts"
+  }
   ["vp-check"] {
-    glob = List("**/*.ts", "**/*.js")
+    glob = List("**/*.ts", "**/*.js", "**/*.cjs")
     workspace_indicator = "vite.config.ts"
     check = "cd {{workspace}} && pnpm exec vp check --no-fmt"
     fix = "cd {{workspace}} && pnpm exec vp check --no-fmt --fix"

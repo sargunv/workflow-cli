@@ -50,8 +50,8 @@ async function command(
     env: context.env,
     stdio: ["ignore", "pipe", "pipe"],
   });
-  let stdout = "",
-    stderr = "";
+  let stdout = "";
+  let stderr = "";
   child.stdout.setEncoding("utf8");
   child.stderr.setEncoding("utf8");
   child.stdout.on("data", (chunk: string) => (stdout += chunk));
@@ -73,10 +73,12 @@ async function waitActive(root: string, id: string, count: number) {
     if (
       report.activeAgents.filter((agent) => agent.status === "running")
         .length === count
-    )
+    ) {
       return report;
-    if (report.status !== "running")
+    }
+    if (report.status !== "running") {
       throw Error(report.error ?? "Run finished too early");
+    }
     await setTimeout(25);
   }
   throw Error("Agents did not start");
@@ -106,8 +108,9 @@ void test("background skip and stop control the exact run; show includes active 
         (await inspectReport(f.root, run.runId)).agents.some(
           (agent) => agent.id === 1,
         )
-      )
+      ) {
         break;
+      }
       await setTimeout(20);
     }
     const current = await inspectReport(f.root, run.runId);
@@ -305,7 +308,9 @@ void test("forced startup cancellation reaps discovery when its worker is suspen
     const launched = await launching;
     assert.equal(launched.code, 1);
     assert.match(launched.stderr, /timed out/);
-    for (let i = 0; i < 100 && exists(discovery.pid); i++) await setTimeout(20);
+    for (let i = 0; i < 100 && exists(discovery.pid); i++) {
+      await setTimeout(20);
+    }
     assert.equal(
       exists(discovery.pid),
       false,
@@ -315,9 +320,12 @@ void test("forced startup cancellation reaps discovery when its worker is suspen
     assert.notEqual((await inspectReport(f.root, id)).status, "running");
     await assert.rejects(readFile(join(f.cwd, "calls"), "utf8"));
   } finally {
-    if (workerPid && exists(workerPid)) process.kill(workerPid, "SIGKILL");
-    if (discovery && exists(discovery.supervisor))
+    if (workerPid && exists(workerPid)) {
+      process.kill(workerPid, "SIGKILL");
+    }
+    if (discovery && exists(discovery.supervisor)) {
       process.kill(-discovery.supervisor, "SIGKILL");
+    }
     await launching;
   }
 });
@@ -365,4 +373,50 @@ void test("a closed stdout pipe is quiet and cancels owned foreground work", asy
   const report = await inspectReport(f.root, ids[0] ?? "");
   assert.equal(report.status, "cancelled");
   await assert.rejects(controlRun(f.root, report.runId, { action: "ping" }));
+});
+
+void test("info exposes the same capabilities in JSON and human output", async () => {
+  const f = await fixture("return null;");
+  const json = await command(["info", "--json"], f);
+  assert.equal(json.code, 0, json.stderr);
+  const info = z
+    .object({
+      runtime: z.object({
+        defaultBackend: z.literal("claude"),
+        concurrency: z.number(),
+      }),
+      backends: z.array(
+        z.object({
+          name: z.string(),
+          available: z.boolean(),
+          transport: z.string(),
+        }),
+      ),
+      profiles: z.record(z.string(), z.unknown()),
+    })
+    .parse(JSON.parse(json.stdout));
+  assert.equal(info.backends.length, 6);
+  assert.deepEqual(
+    info.backends
+      .filter((backend) => backend.available)
+      .map((backend) => backend.name),
+    ["claude"],
+  );
+  assert.equal(
+    info.backends.find((backend) => backend.name === "claude")?.transport,
+    "cli",
+  );
+  assert.deepEqual(info.profiles, {});
+
+  const human = await command(["info"], f);
+  assert.equal(human.code, 0, human.stderr);
+  assert.match(human.stdout, /concurrency\s+\d+/);
+  assert.match(human.stdout, /claude\s+available/);
+  assert.match(human.stdout, /qwen\s+missing/);
+  assert.match(
+    human.stdout,
+    /transport cli; structured native; correction turn/,
+  );
+  assert.match(human.stdout, /Static model IDs/);
+  assert.match(human.stdout, /profiles\n  none/);
 });
