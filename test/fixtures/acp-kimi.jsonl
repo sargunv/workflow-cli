@@ -1,0 +1,18 @@
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "tool_call", "toolCallId": "0:tool_Ijm1CPFNieOoNN7LmU1Vro1E", "title": "Read", "content": [{"type": "content", "content": {"type": "text", "text": ""}}]}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "{\""}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "code"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "\":"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " "}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "731"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "}"}}}}
+{"id": 5, "result": {"stopReason": "end_turn"}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 19487, "size": 1048576}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "{\""}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "remember"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "ed"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "\":"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " "}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "731"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "}"}}}}
+{"id": 6, "result": {"stopReason": "end_turn"}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 19551, "size": 1048576}}}

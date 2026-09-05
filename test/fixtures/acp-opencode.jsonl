@@ -1,0 +1,16 @@
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "tool_call", "toolCallId": "call_pTEUVOQ6HlywRMPcoJ6H7COL", "title": "read"}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "{\""}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "code"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "\":"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "731"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "}"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 6977, "size": 400000}}}
+{"id": 4, "result": {"stopReason": "end_turn", "usage": {"inputTokens": 321, "outputTokens": 9, "totalTokens": 6986, "cachedReadTokens": 6656}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "{\""}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "remember"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "ed"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "\":"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "731"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "}"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 7015, "size": 400000}}}
+{"id": 5, "result": {"stopReason": "end_turn", "usage": {"inputTokens": 359, "outputTokens": 10, "totalTokens": 7025, "cachedReadTokens": 6656}}}

@@ -1,0 +1,41 @@
+{
+  "name": "@sargunv/workflow",
+  "version": "0.1.0",
+  "description": "Deterministic multi-agent workflows across coding agent harnesses",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "workflow": "dist/cli.js" },
+  "files": [
+    "dist",
+    "skills",
+    "examples",
+    "docs",
+    "VISION.md",
+    "BACKENDS.md",
+    "README.md",
+    "DECISIONS.md"
+  ],
+  "engines": { "node": ">=24" },
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "dev": "tsx src/cli.ts",
+    "prepack": "pnpm run build"
+  },
+  "dependencies": {
+    "acorn": "^8.18.0",
+    "acorn-walk": "^8.3.5",
+    "ajv": "^8.20.0",
+    "commander": "^15.0.0",
+    "quickjs-emscripten": "^0.32.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vite-plus": "^0.3.0"
+  }
+}

@@ -1,0 +1,124 @@
+[
+  [
+    {
+      "id": "mode",
+      "category": "mode",
+      "currentValue": "auto",
+      "options": [
+        {
+          "value": "plan",
+          "name": "Plan",
+          "description": "Analyze only, do not modify files or execute commands"
+        },
+        {
+          "value": "default",
+          "name": "Default",
+          "description": "Require approval for file edits or shell commands"
+        },
+        {
+          "value": "auto-edit",
+          "name": "Auto Edit",
+          "description": "Automatically approve file edits"
+        },
+        {
+          "value": "auto",
+          "name": "Auto",
+          "description": "LLM classifier auto-approves safe actions, blocks risky ones"
+        },
+        {
+          "value": "yolo",
+          "name": "YOLO",
+          "description": "Automatically approve all tools"
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "category": "model",
+      "currentValue": "qwen3.8-max(openai)"
+    },
+    {
+      "id": "reasoning_effort",
+      "category": "thought_level",
+      "currentValue": "xhigh",
+      "options": [
+        {
+          "value": "none",
+          "name": "Thinking off",
+          "description": "Disable thinking for this session"
+        },
+        {
+          "value": "low",
+          "name": "Low",
+          "description": "Apply this effort to the next request"
+        },
+        {
+          "value": "medium",
+          "name": "Medium",
+          "description": "Apply this effort to the next request"
+        },
+        {
+          "value": "xhigh",
+          "name": "Extra high",
+          "description": "Apply this effort to the next request"
+        }
+      ]
+    }
+  ],
+  [
+    {
+      "id": "mode",
+      "category": "mode",
+      "currentValue": "auto",
+      "options": [
+        {
+          "value": "plan",
+          "name": "Plan",
+          "description": "Analyze only, do not modify files or execute commands"
+        },
+        {
+          "value": "default",
+          "name": "Default",
+          "description": "Require approval for file edits or shell commands"
+        },
+        {
+          "value": "auto-edit",
+          "name": "Auto Edit",
+          "description": "Automatically approve file edits"
+        },
+        {
+          "value": "auto",
+          "name": "Auto",
+          "description": "LLM classifier auto-approves safe actions, blocks risky ones"
+        },
+        {
+          "value": "yolo",
+          "name": "YOLO",
+          "description": "Automatically approve all tools"
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "category": "model",
+      "currentValue": "qwen3.6-flash(openai)"
+    },
+    {
+      "id": "reasoning_effort",
+      "category": "thought_level",
+      "currentValue": "default",
+      "options": [
+        {
+          "value": "none",
+          "name": "Thinking off",
+          "description": "Disable thinking for this session"
+        },
+        {
+          "value": "default",
+          "name": "Thinking on",
+          "description": "Use the model or provider thinking default"
+        }
+      ]
+    }
+  ]
+]

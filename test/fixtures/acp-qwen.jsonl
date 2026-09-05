@@ -1,0 +1,11 @@
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "tool_call", "toolCallId": "call_234368c66f474aa2b50e22cb", "title": "ReadFile", "content": []}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": ""}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 25477, "size": 1000000}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "{\"code\": 731}"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": ""}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 25589, "size": 1000000}}}
+{"id": 5, "result": {"stopReason": "end_turn"}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "{\"remembered\": 731}"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": ""}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 25664, "size": 1000000}}}
+{"id": 6, "result": {"stopReason": "end_turn"}}

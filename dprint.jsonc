@@ -1,0 +1,26 @@
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "lineWidth": 80,
+  "indentWidth": 2,
+  "useTabs": false,
+  "newLineKind": "lf",
+  "json": { "preferSingleLine": true },
+  "markdown": { "textWrap": "always" },
+  "oxc": { "experimentalSortImports": { "newlinesBetween": true } },
+  "excludes": [
+    "pnpm-lock.yaml",
+    "mise.lock",
+    "VISION.md",
+    "BACKENDS.md",
+    "test/fixtures/**",
+    "examples/**"
+  ],
+  "plugins": [
+    "npm:@dprint/json@0.23.0",
+    "npm:@dprint/markdown@0.23.3",
+    "npm:@dprint/toml@0.8.0",
+    "npm:dprint-plugin-yaml@0.6.0",
+    "npm:@dprint/exec@0.7.3/plugin.json@704701df449dd7e942a71144773778ac529d68c2e4657bfc236d393b898b9a67",
+    "npm:@dprint/oxc@0.38.0"
+  ]
+}

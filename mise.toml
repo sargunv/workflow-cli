@@ -1,0 +1,39 @@
+[settings]
+experimental = true
+pin = true
+minimum_release_age = "3d"
+lockfile = true
+
+[tools]
+"aqua:dprint/dprint" = "0.57.0"
+"aqua:jdx/hk" = "1.57.0"
+"aqua:pnpm/pnpm" = "11.25.0"
+node = "24.20.0"
+
+[deps.pnpm]
+auto = true
+
+[tasks.check]
+run = "hk check --all"
+
+[tasks.fix]
+run = "hk fix --all"
+
+[tasks.build]
+run = "pnpm run build"
+
+[tasks.test]
+run = "pnpm test"
+
+[tasks.typecheck]
+run = "pnpm run typecheck"
+
+[tasks.dev]
+run = "pnpm dev"
+
+[tasks.probe]
+description = "Manually probe one real backend; consumes quota (requires --backend and --model)"
+run = "pnpm exec tsx scripts/probe.ts"
+
+[hooks]
+postinstall = ["hk install --mise"]

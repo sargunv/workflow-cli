@@ -1,0 +1,6 @@
+{"type": "item.started", "item": {"id": "item_0", "type": "command_execution", "command": "/bin/zsh -lc 'read probe.txt'", "aggregated_output": "", "exit_code": null, "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "item_0", "type": "command_execution", "command": "/bin/zsh -lc 'read probe.txt'", "aggregated_output": "zsh:1: not an identifier: probe.txt\n", "exit_code": 1, "status": "failed"}}
+{"type": "item.started", "item": {"id": "item_1", "type": "command_execution", "command": "/bin/zsh -lc 'cat /fixture/workspace/probe.txt'", "aggregated_output": "", "exit_code": null, "status": "in_progress"}}
+{"type": "item.completed", "item": {"id": "item_1", "type": "command_execution", "command": "/bin/zsh -lc 'cat /fixture/workspace/probe.txt'", "aggregated_output": "731\n", "exit_code": 0, "status": "completed"}}
+{"type": "item.completed", "item": {"id": "item_2", "type": "agent_message", "text": "{\"code\":731}"}}
+{"type": "turn.completed", "usage": {"input_tokens": 55046, "cached_input_tokens": 35328, "cache_write_input_tokens": 0, "output_tokens": 311, "reasoning_output_tokens": 89}}
