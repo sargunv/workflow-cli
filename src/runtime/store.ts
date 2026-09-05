@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import { agentOptions, agentRecord, jsonValue, metadata } from "../types.js";
 import type { AgentRecord, Json, Metadata } from "../types.js";
+
 export const activeAgentSchema = z.object({
   id: z.number().int().positive(),
   prompt: z.string(),
@@ -24,7 +25,9 @@ export const activeAgentSchema = z.object({
   toolCalls: z.number(),
   activity: z.string().optional(),
 });
+
 export type ActiveAgent = z.infer<typeof activeAgentSchema>;
+
 export const reportSchema = z.object({
   version: z.literal(1),
   runId: z.string(),
@@ -50,6 +53,7 @@ export const reportSchema = z.object({
   error: z.string().optional(),
   resume: z.string().optional(),
 });
+
 export type Report = z.infer<typeof reportSchema>;
 
 export function atomicJson(path: string, value: unknown) {
@@ -65,6 +69,7 @@ export function runPath(root: string, id: string): string {
   if (!/^wf_[a-z0-9-]{6,}$/.test(id)) {
     throw new Error("Invalid run ID");
   }
+
   return join(root, id);
 }
 
@@ -74,9 +79,14 @@ export function readReport(root: string, id: string): Report {
   );
 }
 
+/** Journals are append-and-flush evidence; report.json is an atomic snapshot.
+ * invocations.jsonl records admission, including calls with no terminal result.
+ * journal.jsonl records only completed agents; transcripts retain driver events. */
 export class RunStore {
   readonly directory: string;
+
   readonly report: Report;
+
   constructor(
     root: string,
     source: string,
@@ -113,9 +123,11 @@ export class RunStore {
     };
     this.save();
   }
+
   save() {
     atomicJson(join(this.directory, "report.json"), this.report);
   }
+
   agent(record: AgentRecord) {
     appendFileSync(
       join(this.directory, "journal.jsonl"),
@@ -128,6 +140,7 @@ export class RunStore {
     this.report.agents.push(record);
     this.save();
   }
+
   startAgent(agent: ActiveAgent) {
     appendFileSync(
       join(this.directory, "invocations.jsonl"),
@@ -137,6 +150,7 @@ export class RunStore {
     this.report.activeAgents.push(agent);
     this.save();
   }
+
   transcript(id: number, event: unknown) {
     appendFileSync(
       join(this.directory, "transcripts", `${id}.jsonl`),

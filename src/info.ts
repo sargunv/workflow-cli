@@ -43,9 +43,11 @@ function formatModel(model: ModelInfo): string {
   if (model.default) {
     description += " (default)";
   }
+
   if (model.efforts.length) {
     description += ` [${model.efforts.join(",")}]`;
   }
+
   return description;
 }
 
@@ -60,6 +62,7 @@ function formatBackend(backend: Detection): string[] {
     `minimal ${backend.minimal}`,
     `usage ${backend.usage ? "reported" : "unavailable"}`,
   ];
+
   const lines = [
     `  ${backend.name.padEnd(10)} ${availability}  ${backend.version ?? ""}  ${backend.binary ?? ""}`,
     `    ${capabilities.join("; ")}`,
@@ -67,9 +70,11 @@ function formatBackend(backend: Detection): string[] {
   if (backend.models.length) {
     lines.push(`    models ${backend.models.map(formatModel).join(", ")}`);
   }
+
   for (const note of backend.notes) {
     lines.push(`    ${note}`);
   }
+
   return lines;
 }
 
@@ -95,16 +100,20 @@ export function formatInstallation(info: InstallationInfo): string {
     "",
     "backends",
   ];
+
   for (const backend of backends) {
     lines.push(...formatBackend(backend));
   }
+
   lines.push("", "profiles");
   const entries = Object.entries(profiles);
   if (!entries.length) {
     lines.push("  none");
   }
+
   for (const [name, profile] of entries) {
     lines.push(`  ${name}  ${JSON.stringify(profile)}`);
   }
+
   return lines.join("\n") + "\n";
 }

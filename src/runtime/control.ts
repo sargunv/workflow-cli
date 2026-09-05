@@ -6,9 +6,11 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
+import { isErrno } from "../types.js";
 import { errorText } from "../types.js";
 import { atomicJson, readReport, runPath } from "./store.js";
 import type { Report } from "./store.js";
+
 const endpointSchema = z
   .object({
     port: z.number().int().min(1).max(65535),
@@ -16,17 +18,21 @@ const endpointSchema = z
     runId: z.string(),
   })
   .strict();
+
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("ping") }),
   z.object({ action: z.literal("stop") }),
   z.object({ action: z.literal("skip"), id: z.number().int().positive() }),
 ]);
+
 export type ControlAction = z.infer<typeof actionSchema>;
+
 const responseSchema = z.object({
   ok: z.boolean(),
   runId: z.string(),
   error: z.string().optional(),
 });
+
 interface ControlTarget {
   runId: string;
   cancel: () => void;
@@ -51,14 +57,18 @@ export async function startControl(
       if (answered) {
         return;
       }
+
       input += chunk;
       if (input.length > 4096) {
         socket.destroy();
+
         return;
       }
+
       if (!input.includes("\n")) {
         return;
       }
+
       answered = true;
       let action: ControlAction;
       try {
@@ -70,9 +80,11 @@ export async function startControl(
           })
           .strict()
           .parse(JSON.parse(input.slice(0, input.indexOf("\n"))));
+
         if (!timingSafeEqual(Buffer.from(request.token), Buffer.from(token))) {
           throw new Error("Invalid control credentials");
         }
+
         action = request.command;
         if (action.action === "skip") {
           target.skip(action.id);
@@ -85,8 +97,10 @@ export async function startControl(
             error: errorText(error),
           }) + "\n",
         );
+
         return;
       }
+
       // Acknowledge before cancellation closes admission and the control server.
       socket.end(
         JSON.stringify({ ok: true, runId: target.runId }) + "\n",
@@ -98,6 +112,7 @@ export async function startControl(
       );
     });
   });
+
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
@@ -109,6 +124,7 @@ export async function startControl(
   if (!address || typeof address === "string") {
     throw new Error("Run control did not bind a local port");
   }
+
   try {
     atomicJson(join(directory, "control.json"), {
       port: address.port,
@@ -119,11 +135,13 @@ export async function startControl(
     server.close();
     throw error;
   }
+
   return () =>
     new Promise<void>((resolve, reject) => {
       for (const socket of sockets) {
         socket.destroy();
       }
+
       server.close((error) => (error ? reject(error) : resolve()));
     });
 }
@@ -139,6 +157,7 @@ export async function controlRun(
   if (endpoint.runId !== id) {
     throw new Error("Control endpoint belongs to another run");
   }
+
   return new Promise<void>((resolve, reject) => {
     const socket = createConnection({ host: "127.0.0.1", port: endpoint.port });
     let input = "";
@@ -147,6 +166,7 @@ export async function controlRun(
       if (complete) {
         return;
       }
+
       complete = true;
       socket.destroy();
       if (error) {
@@ -155,6 +175,7 @@ export async function controlRun(
         resolve();
       }
     };
+
     socket.setTimeout(2000, () =>
       finish(
         new Error(
@@ -173,11 +194,14 @@ export async function controlRun(
       input += chunk;
       if (input.length > 4096) {
         finish(new Error("Invalid run control response"));
+
         return;
       }
+
       if (!input.includes("\n")) {
         return;
       }
+
       try {
         const response = responseSchema.parse(
           JSON.parse(input.slice(0, input.indexOf("\n"))),
@@ -185,6 +209,7 @@ export async function controlRun(
         if (response.runId !== id || !response.ok) {
           throw new Error(response.error ?? "Run control identity mismatch");
         }
+
         finish();
       } catch (error) {
         finish(error);
@@ -205,20 +230,19 @@ export async function inspectReport(root: string, id: string): Promise<Report> {
   if (report.status !== "running") {
     return report;
   }
+
   try {
     await controlRun(root, id, { action: "ping" });
+
     return readReport(root, id);
   } catch (error) {
     // Observation timeout is not evidence that a process has stopped.
-    if (
-      error instanceof Error &&
-      "code" in error &&
-      error.code === "ECONNREFUSED"
-    ) {
+    if (isErrno(error, "ECONNREFUSED")) {
       const current = readReport(root, id);
       if (current.status !== "running") {
         return current;
       }
+
       return {
         ...current,
         status: "interrupted",
@@ -226,14 +250,11 @@ export async function inspectReport(root: string, id: string): Promise<Report> {
           "Run control is no longer listening. Inspect journals and retained worktrees before resuming.",
       };
     }
+
     try {
       process.kill(report.pid, 0);
     } catch (processError) {
-      if (
-        processError instanceof Error &&
-        "code" in processError &&
-        processError.code === "ESRCH"
-      ) {
+      if (isErrno(processError, "ESRCH")) {
         return {
           ...report,
           status: "interrupted",
@@ -242,6 +263,7 @@ export async function inspectReport(root: string, id: string): Promise<Report> {
         };
       }
     }
+
     return { ...report, observation: errorText(error) };
   }
 }

@@ -9,7 +9,9 @@ if (!args || typeof args.task !== "string" || !args.task.trim()) {
     "Pass --args with a nonempty task string; include absolute repository paths.",
   );
 }
+
 const readOnly = { toolPolicy: "read-only" };
+
 const findingsSchema = {
   type: "object",
   properties: {
@@ -26,21 +28,25 @@ const findingsSchema = {
   required: ["findings"],
   additionalProperties: false,
 };
+
 const voteSchema = {
   type: "object",
   properties: { valid: { type: "boolean" }, reason: { type: "string" } },
   required: ["valid", "reason"],
   additionalProperties: false,
 };
+
 const seen = new Set();
 const evaluated = [];
 let dry = 0;
 let round = 0;
 let failed = false;
 const maxRounds = args.maxRounds ?? 8;
+
 if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 100) {
   throw Error("maxRounds must be an integer from 1 to 100.");
 }
+
 while (dry < 2 && round < maxRounds) {
   round++;
   const batch = await agent(
@@ -53,18 +59,22 @@ while (dry < 2 && round < maxRounds) {
       schema: findingsSchema,
     },
   );
+
   if (batch === null) {
     log("Finder failed; stopping without claiming convergence");
     failed = true;
     break;
   }
+
   const fresh = [];
   for (const item of batch.findings) {
     if (!seen.has(item.id)) {
       fresh.push(item);
     }
+
     seen.add(item.id); // Includes rejected findings and duplicates within this round.
   }
+
   log(
     `Round ${round}: ${fresh.length} new, ${batch.findings.length - fresh.length} duplicates dropped`,
   );
@@ -79,16 +89,21 @@ while (dry < 2 && round < maxRounds) {
         schema: voteSchema,
       },
     );
+
     if (verdict === null) {
       log(`Verification failed for ${item.id}; retained as unresolved`);
     } else if (!verdict.valid) {
       log(`Rejected ${item.id}; its identity remains in the seen set`);
     }
+
     return { item, verdict };
   });
+
   evaluated.push(...verified);
 }
+
 if (dry < 2 && !failed) {
   log(`Round limit ${maxRounds} reached before convergence`);
 }
+
 return { converged: dry >= 2, rounds: round, seen: [...seen], evaluated };

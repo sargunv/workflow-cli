@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
+import { isErrno } from "../types.js";
 import { errorText, ProcessOwnershipError } from "../types.js";
 
 const supervisorPath = fileURLToPath(
@@ -25,14 +26,17 @@ export async function findBinary(name: string): Promise<string | undefined> {
     if (!directory) {
       continue;
     }
+
     const path = join(directory, name);
     try {
       await access(path, constants.X_OK);
+
       return path;
     } catch {
       /* try next PATH entry */
     }
   }
+
   return undefined;
 }
 
@@ -51,13 +55,23 @@ export interface ProcessExit {
   cleanupUncertain?: boolean;
 }
 
+/** The supervisor anchors the backend process group; IPC ties it to this owner.
+ * A reported exit and bounded pipe drain establish whether cleanup is certain. */
 export class ManagedProcess {
   readonly child;
+
   readonly exited: Promise<ProcessExit>;
+
+  private stderr = "";
+
   private stopped = false;
+
   private abortReason: string | undefined;
+
   private killTimer: NodeJS.Timeout | undefined;
+
   private forcedGroupKill = false;
+
   private deadline: NodeJS.Timeout | undefined;
 
   constructor(binary: string, argv: string[], options: ProcessOptions) {
@@ -67,17 +81,55 @@ export class ManagedProcess {
         "Windows process-tree ownership is not implemented; use WSL",
       );
     }
+
     this.child = spawn(process.execPath, [supervisorPath, binary, ...argv], {
       cwd: options.cwd,
       stdio: ["pipe", "pipe", "pipe", "ipc"],
       detached: true,
       env: { ...process.env, ...options.env },
     });
-    let stderr = "";
     this.resetTimeout(options.timeoutMs ?? 900_000);
     const abort = () =>
       this.stop(errorText(options.signal.reason ?? "Cancelled"));
     options.signal.addEventListener("abort", abort, { once: true });
+    this.forwardOutput(options.onLine);
+    this.exited = this.waitForExit(options.signal, abort);
+  }
+
+  write(value: string) {
+    if (!this.stopped) {
+      this.child.stdin?.write(value);
+    }
+  }
+
+  end(value = "") {
+    this.child.stdin?.end(value);
+  }
+
+  resetTimeout(timeoutMs: number) {
+    if (this.stopped) {
+      throw new Error("Backend process already stopped");
+    }
+
+    clearTimeout(this.deadline);
+    this.deadline = setTimeout(
+      () => this.stop(`Backend timed out after ${timeoutMs}ms`),
+      timeoutMs,
+    );
+  }
+
+  stop(reason = "Backend stopped") {
+    if (this.stopped) {
+      return;
+    }
+
+    this.stopped = true;
+    this.abortReason = reason;
+    this.kill("SIGTERM");
+    this.killTimer = setTimeout(() => this.kill("SIGKILL"), 1000);
+  }
+
+  private forwardOutput(onLine: ProcessOptions["onLine"]) {
     // Stream full records to transcripts, bounded tails to diagnostics. Never buffer
     // a vendor transcript in the caller's context.
     for (const channel of ["stdout", "stderr"] as const) {
@@ -90,18 +142,21 @@ export class ManagedProcess {
           const line = pending.slice(0, end);
           pending = pending.slice(end + 1);
           if (channel === "stderr") {
-            stderr = (stderr + line + "\n").slice(-8192);
+            this.stderr = (this.stderr + line + "\n").slice(-8192);
           }
+
           try {
-            options.onLine?.(line, channel);
+            onLine?.(line, channel);
           } catch (error) {
             this.stop(`Stream handler failed: ${errorText(error)}`);
           }
         }
+
         if (pending.length > 16 * 1024 * 1024) {
           this.stop("Backend emitted a record larger than 16 MiB");
         }
       };
+
       this.child[channel]?.on("data", (chunk: Buffer) =>
         consume(decoder.write(chunk)),
       );
@@ -109,10 +164,17 @@ export class ManagedProcess {
         consume(decoder.end() + (pending ? "\n" : ""));
       });
     }
+
     this.child.stdin?.on("error", () => {
       /* EPIPE is reported by the process exit. */
     });
-    this.exited = new Promise((resolve) => {
+  }
+
+  private waitForExit(
+    signal: AbortSignal,
+    abort: () => void,
+  ): Promise<ProcessExit> {
+    return new Promise((resolve) => {
       let spawnError: string | undefined;
       let backendExit: { code: number; error?: string } | undefined;
       let drainTimer: NodeJS.Timeout | undefined;
@@ -122,11 +184,13 @@ export class ManagedProcess {
         if (!parsed.success) {
           return;
         }
+
         const value = parsed.data;
         let error = value.error;
         if (error === undefined && typeof value.signal === "string") {
           error = `Backend exited on ${value.signal}`;
         }
+
         backendExit = {
           code: typeof value.code === "number" ? value.code : 1,
           error,
@@ -137,17 +201,18 @@ export class ManagedProcess {
       });
       const finish = (
         _code: number | null,
-        signal: NodeJS.Signals | null,
+        exitSignal: NodeJS.Signals | null,
         drainError?: string,
       ) => {
         if (settled) {
           return;
         }
+
         settled = true;
         clearTimeout(this.deadline);
         clearTimeout(this.killTimer);
         clearTimeout(drainTimer);
-        options.signal.removeEventListener("abort", abort);
+        signal.removeEventListener("abort", abort);
         this.stopped = true;
         resolve({
           code: drainError ? 1 : (backendExit?.code ?? 1),
@@ -157,7 +222,7 @@ export class ManagedProcess {
           cleanupUncertain:
             !!drainError ||
             (!backendExit && !spawnError && !this.forcedGroupKill),
-          stderr,
+          stderr: this.stderr,
           error:
             drainError ??
             this.abortReason ??
@@ -165,9 +230,10 @@ export class ManagedProcess {
             backendExit?.error ??
             (backendExit
               ? undefined
-              : `Backend supervisor exited unexpectedly (${signal ?? _code})`),
+              : `Backend supervisor exited unexpectedly (${exitSignal ?? _code})`),
         });
       };
+
       this.child.once("close", finish);
       this.child.once("exit", (code, signal) => {
         // A crashed supervisor or a descendant escaping the owned group can
@@ -186,57 +252,26 @@ export class ManagedProcess {
     });
   }
 
-  write(value: string) {
-    if (!this.stopped) {
-      this.child.stdin?.write(value);
-    }
-  }
-
-  resetTimeout(timeoutMs: number) {
-    if (this.stopped) {
-      throw new Error("Backend process already stopped");
-    }
-    clearTimeout(this.deadline);
-    this.deadline = setTimeout(
-      () => this.stop(`Backend timed out after ${timeoutMs}ms`),
-      timeoutMs,
-    );
-  }
-
-  end(value = "") {
-    this.child.stdin?.end(value);
-  }
-
   private kill(signal: NodeJS.Signals) {
-    // Signal only while our direct child still anchors this process group.
+    // Our direct child must still anchor the group; otherwise its PID may be reused.
     if (
-      this.child.pid &&
-      this.child.exitCode === null &&
-      this.child.signalCode === null
+      !this.child.pid ||
+      this.child.exitCode !== null ||
+      this.child.signalCode !== null
     ) {
-      try {
-        process.kill(-this.child.pid, signal);
-        if (signal === "SIGKILL") {
-          this.forcedGroupKill = true;
-        }
-      } catch (error) {
-        if (
-          !(error instanceof Error && "code" in error && error.code === "ESRCH")
-        ) {
-          this.child.kill(signal);
-        }
-      }
-    }
-  }
-
-  stop(reason = "Backend stopped") {
-    if (this.stopped) {
       return;
     }
-    this.stopped = true;
-    this.abortReason = reason;
-    this.kill("SIGTERM");
-    this.killTimer = setTimeout(() => this.kill("SIGKILL"), 1000);
+
+    try {
+      process.kill(-this.child.pid, signal);
+      if (signal === "SIGKILL") {
+        this.forcedGroupKill = true;
+      }
+    } catch (error) {
+      if (!isErrno(error, "ESRCH")) {
+        this.child.kill(signal);
+      }
+    }
   }
 }
 
@@ -261,13 +296,16 @@ export async function capture(
       }
     },
   });
+
   process.end();
   const exit = await process.exited;
   if (exit.cleanupUncertain) {
     throw new ProcessOwnershipError(exit.error);
   }
+
   if (exit.code !== 0 || exit.error) {
     throw new Error(exit.error ?? exit.stderr ?? `Exited ${exit.code}`);
   }
+
   return output.trim();
 }

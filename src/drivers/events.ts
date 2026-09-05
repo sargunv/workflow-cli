@@ -2,10 +2,12 @@ import { z } from "zod";
 
 import { jsonValue } from "../types.js";
 import type { DriverEvent, DriverResult, Json, Usage } from "../types.js";
+
 const record = z.record(z.string(), z.unknown());
 
 export function object(value: unknown): Record<string, unknown> {
   const result = record.safeParse(value);
+
   return result.success ? result.data : {};
 }
 
@@ -26,6 +28,7 @@ export function array(value: unknown): unknown[] {
 export function decode(line: string): Record<string, unknown> | undefined {
   try {
     const result = record.safeParse(JSON.parse(line));
+
     return result.success ? result.data : undefined;
   } catch {
     return undefined;
@@ -46,6 +49,7 @@ export function usage(value: unknown): Usage | undefined {
   ) {
     return undefined;
   }
+
   return {
     input,
     output,
@@ -54,11 +58,17 @@ export function usage(value: unknown): Usage | undefined {
 
 export class CliEventParser {
   text = "";
+
   structured: Json | undefined;
+
   usage: Usage | undefined;
+
   error: string | undefined;
+
   terminal = false;
+
   private tools = new Set<string>();
+
   private cursorFinal: string | undefined;
 
   constructor(
@@ -71,15 +81,34 @@ export class CliEventParser {
     if (channel !== "stdout") {
       return;
     }
+
     const event = decode(line);
     if (!event) {
       return;
     }
+
     if (this.backend === "codex") {
       this.codexEvent(event);
     } else {
       this.claudeOrCursorEvent(event);
     }
+  }
+
+  finish(code: number, error?: string): DriverResult {
+    return {
+      text: this.text,
+      structured: this.structured,
+      usage: this.usage,
+      exitInfo: {
+        code,
+        error:
+          error ??
+          this.error ??
+          (!this.terminal
+            ? "Backend exited without a terminal event"
+            : undefined),
+      },
+    };
   }
 
   private codexEvent(event: Record<string, unknown>) {
@@ -100,10 +129,12 @@ export class CliEventParser {
         );
       }
     }
+
     if (event.type === "turn.completed") {
       this.terminal = true;
       this.usage = usage(event.usage);
     }
+
     if (event.type === "turn.failed" || event.type === "error") {
       this.error =
         string(object(event.error).message ?? event.message) ||
@@ -122,20 +153,24 @@ export class CliEventParser {
           this.cursorFinal = parts.map((part) => string(part.text)).join("");
         }
       }
+
       for (const content of array(message.content)) {
         const part = object(content);
         if (part.type === "text") {
           this.activity(string(part.text));
         }
+
         if (part.type === "tool_use") {
           this.tool(string(part.id), string(part.name));
         }
       }
     }
+
     if (event.type === "tool_call" && event.subtype === "started") {
       if (this.backend === "cursor") {
         this.cursorFinal = undefined;
       }
+
       this.tool(
         string(event.call_id),
         Object.keys(object(event.tool_call)).find((key) =>
@@ -143,32 +178,40 @@ export class CliEventParser {
         ) ?? "Tool call",
       );
     }
+
     if (event.type === "result") {
-      this.terminal = true;
-      this.text =
-        this.backend === "cursor"
-          ? (this.cursorFinal ?? string(event.result))
-          : string(event.result);
-      const parsed = jsonValue.safeParse(event.structured_output);
-      if (parsed.success) {
-        this.structured = parsed.data;
-      }
-      this.usage = usage(event.usage);
-      if (this.backend === "claude" && this.usage) {
-        const tokens = object(event.usage);
-        this.usage.input +=
-          number(tokens.cache_creation_input_tokens) +
-          number(tokens.cache_read_input_tokens);
-      }
-      if (this.usage && typeof event.total_cost_usd === "number") {
-        this.usage.cost = event.total_cost_usd;
-      }
-      if (
-        event.is_error === true ||
-        (event.subtype !== undefined && event.subtype !== "success")
-      ) {
-        this.error = this.text || string(event.subtype) || "Backend failed";
-      }
+      this.resultEvent(event);
+    }
+  }
+
+  private resultEvent(event: Record<string, unknown>) {
+    this.terminal = true;
+    this.text =
+      this.backend === "cursor"
+        ? (this.cursorFinal ?? string(event.result))
+        : string(event.result);
+    const parsed = jsonValue.safeParse(event.structured_output);
+    if (parsed.success) {
+      this.structured = parsed.data;
+    }
+
+    this.usage = usage(event.usage);
+    if (this.backend === "claude" && this.usage) {
+      const tokens = object(event.usage);
+      this.usage.input +=
+        number(tokens.cache_creation_input_tokens) +
+        number(tokens.cache_read_input_tokens);
+    }
+
+    if (this.usage && typeof event.total_cost_usd === "number") {
+      this.usage.cost = event.total_cost_usd;
+    }
+
+    if (
+      event.is_error === true ||
+      (event.subtype !== undefined && event.subtype !== "success")
+    ) {
+      this.error = this.text || string(event.subtype) || "Backend failed";
     }
   }
 
@@ -184,31 +227,17 @@ export class CliEventParser {
       this.emit({ type: "tool", id, text });
     }
   }
-
-  finish(code: number, error?: string): DriverResult {
-    return {
-      text: this.text,
-      structured: this.structured,
-      usage: this.usage,
-      exitInfo: {
-        code,
-        error:
-          error ??
-          this.error ??
-          (!this.terminal
-            ? "Backend exited without a terminal event"
-            : undefined),
-      },
-    };
-  }
 }
 
 export class AcpEventParser {
   private text = "";
+
   private tokenUsage: Usage | undefined;
+
   private tools = new Set<string>();
 
   constructor(private emit: (event: DriverEvent) => void) {}
+
   reset() {
     this.text = "";
     this.tokenUsage = undefined;
@@ -248,6 +277,7 @@ export class AcpEventParser {
     ) {
       this.tokenUsage = usage(tokens);
     }
+
     return {
       text: this.text,
       usage: this.tokenUsage,

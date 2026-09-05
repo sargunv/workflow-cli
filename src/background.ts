@@ -26,7 +26,9 @@ export const launchSchema = z
     resume: z.string().optional(),
   })
   .strict();
+
 export type Launch = z.infer<typeof launchSchema>;
+
 const replySchema = z
   .object({
     type: z.enum(["starting", "ready", "failed"]),
@@ -36,7 +38,9 @@ const replySchema = z
     error: z.string().optional(),
   })
   .strict();
+
 export type LaunchReply = z.infer<typeof replySchema>;
+
 export interface LaunchResult extends LaunchReply {
   warning?: string;
   logsDirectory?: string;
@@ -60,6 +64,7 @@ export async function launchBackground(
   });
   closeSync(stdout);
   closeSync(stderr);
+
   return new Promise((resolve, reject) => {
     let done = false;
     let cancelling: Error | undefined;
@@ -75,6 +80,7 @@ export async function launchBackground(
         ),
       launch.config.transport.launchTimeoutMs,
     );
+
     const clear = () => {
       clearTimeout(timer);
       clearTimeout(escalation);
@@ -84,6 +90,7 @@ export async function launchBackground(
       if (done) {
         return;
       }
+
       done = true;
       clear();
       reject(
@@ -93,18 +100,22 @@ export async function launchBackground(
         ),
       );
     };
+
     const cancel = (error: Error) => {
       if (done || cancelling) {
         return;
       }
+
       cancelling = error;
       clearTimeout(timer);
       if (worker.connected) {
         worker.send({ type: "cancel-startup" }, () => {});
       }
+
       escalation = setTimeout(() => worker.kill("SIGTERM"), 3000);
       kill = setTimeout(() => worker.kill("SIGKILL"), 5000);
     };
+
     worker.once("error", (error) => {
       if (worker.pid) {
         cancel(error);
@@ -120,6 +131,7 @@ export async function launchBackground(
           ),
       ),
     );
+
     async function finishLaunch(reply: LaunchReply) {
       const result: LaunchResult = { ...reply };
       try {
@@ -140,9 +152,11 @@ export async function launchBackground(
           "Some startup logs could not be moved into the run directory";
         result.logsDirectory = temporary;
       }
+
       if (worker.connected) {
         worker.disconnect();
       }
+
       worker.unref();
       if (reply.type === "failed") {
         reject(
@@ -159,16 +173,20 @@ export async function launchBackground(
       if (done) {
         return;
       }
+
       const parsed = replySchema.safeParse(message);
       if (!parsed.success) {
         cancel(new Error("Invalid background launch acknowledgement"));
+
         return;
       }
+
       const reply = parsed.data;
       location = reply.directory;
       if (reply.type === "starting" || cancelling) {
         return;
       }
+
       done = true;
       clear();
       void finishLaunch(reply).catch(reject);
@@ -188,6 +206,7 @@ export function notifyLauncher(reply: LaunchReply): Promise<void> {
       new Error("Background worker requires its launcher IPC connection"),
     );
   }
+
   return new Promise((resolve, reject) =>
     process.send?.(reply, (error) => (error ? reject(error) : resolve())),
   );

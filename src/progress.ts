@@ -34,15 +34,49 @@ const terminal: ProgressSurface = {
   rows: () => process.stderr.rows ?? 24,
   now: () => Date.now(),
 };
+
+function formatAgentRow(row: Row, now: number): string {
+  const icons: Record<string, string> = {
+    running: "●",
+    queued: "○",
+    done: "✓",
+    errored: "✗",
+    skipped: "–",
+    empty: "∅",
+  };
+
+  const elapsedMs =
+    row.elapsedMs ?? (row.state === "queued" ? 0 : now - row.started);
+  const parts = [
+    `  ${icons[row.state] ?? "·"} ${row.id} ${row.label}`,
+    row.state,
+    `${(elapsedMs / 1000).toFixed(1)}s`,
+    `${row.tools} tools`,
+  ];
+
+  if (row.activity) {
+    parts.push(row.activity);
+  }
+
+  return parts.join(" · ");
+}
+
 /** Activity is coalesced; lifecycle and narrator events are never dropped. */
 export class Progress {
   private agents = new Map<number, Row>();
+
   private activity = new Map<number, RunEvent>();
+
   private lines = 0;
+
   private observed = new Map<number, string>();
+
   private observedActivity = new Map<number, string>();
+
   private observedLogs = 0;
+
   private dirty = false;
+
   private timer: NodeJS.Timeout;
 
   constructor(
@@ -59,25 +93,32 @@ export class Progress {
       this.activity.set(event.id, event);
       this.updateRow(event);
       this.dirty = true;
+
       return;
     }
+
     if (event.id !== undefined) {
       const pending = this.activity.get(event.id);
       if (pending && this.json) {
         this.emit(pending);
       }
+
       this.activity.delete(event.id);
     }
+
     this.updateRow(event);
     this.dirty = true;
     if (this.json) {
       this.emit(event);
+
       return;
     }
+
     if (["log", "warning", "replay"].includes(event.type)) {
       if (this.surface.tty) {
         this.clear();
       }
+
       this.surface.writeErr(`› ${terminalText(event.text ?? "")}\n`);
     } else if (event.type === "agent-finished" && !this.surface.tty) {
       this.surface.writeErr(
@@ -98,6 +139,7 @@ export class Progress {
           phase: agent.phase,
         });
       }
+
       if (agent.status === "running" && status !== "running") {
         this.event({
           type: "agent-started",
@@ -109,6 +151,7 @@ export class Progress {
           ),
         });
       }
+
       const fingerprint = JSON.stringify([agent.activity, agent.toolCalls]);
       if (this.observedActivity.get(agent.id) !== fingerprint) {
         this.event({
@@ -119,9 +162,13 @@ export class Progress {
           toolCalls: agent.toolCalls,
         });
       }
+
       this.observed.set(agent.id, agent.status);
       this.observedActivity.set(agent.id, fingerprint);
     }
+
+    // Polling can begin mid-run. Emit completions only for agents we observed
+    // live; the final report supplies history without replaying old events.
     for (const agent of report.agents) {
       if (
         this.observed.has(agent.id) &&
@@ -139,12 +186,42 @@ export class Progress {
         this.observed.set(agent.id, agent.status);
       }
     }
+
     if (report.status === "running") {
       for (const message of report.logs.slice(this.observedLogs)) {
         this.event({ type: "log", runId: report.runId, text: message });
       }
     }
+
     this.observedLogs = report.logs.length;
+  }
+
+  flush() {
+    if (this.json) {
+      for (const event of this.activity.values()) {
+        this.emit(event);
+      }
+    }
+
+    this.activity.clear();
+    if (
+      !this.json &&
+      this.surface.tty &&
+      (this.dirty ||
+        [...this.agents.values()].some((row) => row.state === "running"))
+    ) {
+      this.render();
+    }
+
+    this.dirty = false;
+  }
+
+  close() {
+    clearInterval(this.timer);
+    this.flush();
+    if (this.surface.tty) {
+      this.clear();
+    }
   }
 
   private emit(event: RunEvent) {
@@ -155,6 +232,7 @@ export class Progress {
     if (event.id === undefined) {
       return;
     }
+
     const row = this.agents.get(event.id) ?? {
       id: event.id,
       label: event.label ?? `Agent ${event.id}`,
@@ -164,39 +242,26 @@ export class Progress {
       started: this.surface.now(),
       tools: 0,
     };
+
     if (event.type === "agent-started") {
       row.state = "running";
       row.started = this.surface.now() - (event.elapsedMs ?? 0);
     }
+
     if (event.type === "agent-finished") {
       row.state = event.status ?? "done";
       row.elapsedMs = event.elapsedMs ?? this.surface.now() - row.started;
     }
+
     if (event.text) {
       row.activity = terminalText(event.text).slice(0, 160);
     }
+
     if (event.toolCalls !== undefined) {
       row.tools = event.toolCalls;
     }
-    this.agents.set(event.id, row);
-  }
 
-  flush() {
-    if (this.json) {
-      for (const event of this.activity.values()) {
-        this.emit(event);
-      }
-    }
-    this.activity.clear();
-    if (
-      !this.json &&
-      this.surface.tty &&
-      (this.dirty ||
-        [...this.agents.values()].some((row) => row.state === "running"))
-    ) {
-      this.render();
-    }
-    this.dirty = false;
+    this.agents.set(event.id, row);
   }
 
   private clear() {
@@ -220,15 +285,8 @@ export class Progress {
       group.push(row);
       groups.set(row.phase, group);
     }
+
     const lines: string[] = [];
-    const icons: Record<string, string> = {
-      running: "●",
-      queued: "○",
-      done: "✓",
-      errored: "✗",
-      skipped: "–",
-      empty: "∅",
-    };
     const live = (rows: Row[]) =>
       rows.some((row) => ["queued", "running"].includes(row.state));
     for (const [phase, rows] of [...groups].sort(
@@ -236,11 +294,10 @@ export class Progress {
     )) {
       lines.push(phase);
       for (const row of rows) {
-        lines.push(
-          `  ${icons[row.state] ?? "·"} ${row.id} ${row.label} · ${row.state} · ${((row.elapsedMs ?? (row.state === "queued" ? 0 : this.surface.now() - row.started)) / 1000).toFixed(1)}s · ${row.tools} tools${row.activity ? " · " + row.activity : ""}`,
-        );
+        lines.push(formatAgentRow(row, this.surface.now()));
       }
     }
+
     const maxRows = Math.max(3, this.surface.rows() - 4);
     const visible = lines.slice(-maxRows);
     if (lines.length > maxRows) {
@@ -248,19 +305,12 @@ export class Progress {
         `… ${lines.length - maxRows} earlier rows; workflow show for all agents`,
       );
     }
+
     const width = Math.max(20, this.surface.columns() - 1);
     this.surface.writeErr(
       visible.map((line) => terminalText(line).slice(0, width)).join("\n") +
         (visible.length ? "\n" : ""),
     );
     this.lines = visible.length;
-  }
-
-  close() {
-    clearInterval(this.timer);
-    this.flush();
-    if (this.surface.tty) {
-      this.clear();
-    }
   }
 }

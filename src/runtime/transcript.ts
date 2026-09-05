@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import { runPath } from "./store.js";
+
 const cacheLink = z
   .object({
     type: z.literal("cache-hit"),
@@ -11,6 +12,7 @@ const cacheLink = z
     agentId: z.number().int().positive(),
   })
   .strict();
+
 export async function readTranscript(
   root: string,
   runId: string,
@@ -20,10 +22,13 @@ export async function readTranscript(
   if (!Number.isInteger(agentId) || agentId < 1) {
     throw new Error("Agent ID must be positive");
   }
+
   const key = `${runId}/${agentId}`;
+  // This bounds cache-hit ancestry, not transcript size.
   if (visited.has(key) || visited.size >= 100) {
     throw new Error("Invalid or excessively deep cached transcript lineage");
   }
+
   visited.add(key);
   const text = await readFile(
     join(runPath(root, runId), "transcripts", `${agentId}.jsonl`),
@@ -37,6 +42,7 @@ export async function readTranscript(
     } catch {
       return text;
     }
+
     const link = cacheLink.safeParse(value);
     if (link.success) {
       return (
@@ -50,5 +56,6 @@ export async function readTranscript(
       );
     }
   }
+
   return text;
 }

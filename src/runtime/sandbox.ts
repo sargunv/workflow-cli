@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 
 import { getQuickJS } from "quickjs-emscripten";
-import type { QuickJSHandle } from "quickjs-emscripten";
+import type {
+  QuickJSHandle,
+  QuickJSContext,
+  QuickJSRuntime,
+} from "quickjs-emscripten";
 
 import { errorText, jsonValue } from "../types.js";
 import type { Json } from "../types.js";
@@ -28,8 +32,10 @@ function guestError(value: unknown): string {
             .find((line) => line.includes("workflow.js"))
             ?.trim()
         : undefined;
+
     return `${name}: ${value.message}${location ? ` (${location})` : ""}`;
   }
+
   return typeof value === "string" ? value : JSON.stringify(value);
 }
 
@@ -48,208 +54,287 @@ export interface SandboxLimits {
   instructions?: number;
 }
 
-// Only JSON strings cross the VM boundary. No host objects or function constructors
-// become reachable from guest code. QuickJS has no host module loader or I/O bindings.
+// Each execution owns its VM, handles and job pump. Only JSON strings cross
+// the bridge; no host objects, constructors, module loader or I/O enter the VM.
+class GuestSession {
+  private readonly vm: QuickJSContext;
+
+  private readonly result: Promise<Json>;
+
+  private resolveResult: (value: Json) => void = () => {};
+
+  private rejectResult: (error: Error) => void = () => {};
+
+  private closed = false;
+
+  private settle: QuickJSHandle | undefined;
+
+  private encodeResult: QuickJSHandle | undefined;
+
+  private instructions = 0;
+
+  private interrupted = false;
+
+  constructor(
+    private runtime: QuickJSRuntime,
+    private host: SandboxHost,
+    limits: SandboxLimits,
+    private releaseExecution: (() => void) | undefined,
+  ) {
+    runtime.setMemoryLimit(limits.memoryBytes ?? 64 * 1024 * 1024);
+    runtime.setMaxStackSize(512 * 1024);
+    runtime.setInterruptHandler(() => {
+      this.interrupted =
+        host.signal.aborted ||
+        ++this.instructions > (limits.instructions ?? 100_000);
+
+      return this.interrupted;
+    });
+    this.vm = runtime.newContext();
+    this.result = new Promise<Json>((resolve, reject) => {
+      this.resolveResult = resolve;
+      this.rejectResult = reject;
+    });
+  }
+
+  async run(script: Script, args: Json): Promise<Json> {
+    const onAbort = () =>
+      this.fail(this.host.signal.reason ?? "Workflow cancelled");
+    this.host.signal.addEventListener("abort", onAbort, { once: true });
+
+    try {
+      this.host.signal.throwIfAborted();
+      this.installBridge();
+      this.bootstrap(script, args);
+
+      // User code is evaluated outside the bootstrap closure, so it cannot name
+      // captured NativeDate or the host dispatch function.
+      const execution = this.takeValue(
+        this.vm.evalCode(`(async () => {\n${script.body}\n})()`, "workflow.js"),
+      );
+      void this.vm.resolvePromise(execution).then(
+        (outcome) => this.deliverResult(outcome),
+        (error) => this.fail(error),
+      );
+      execution.dispose();
+      this.pump();
+
+      return await this.result;
+    } finally {
+      this.closed = true;
+      this.host.signal.removeEventListener("abort", onAbort);
+      this.idle();
+      this.settle?.dispose();
+      this.encodeResult?.dispose();
+      this.vm.dispose();
+      this.runtime.dispose();
+    }
+  }
+
+  private hold() {
+    // Replay may deliver cached results only after guest microtasks drain.
+    this.releaseExecution ??= this.host.holdExecution?.();
+  }
+
+  private idle() {
+    this.releaseExecution?.();
+    this.releaseExecution = undefined;
+  }
+
+  private fail(error: unknown) {
+    this.rejectResult(new Error(errorText(error)));
+  }
+
+  private pump() {
+    if (this.closed) {
+      return;
+    }
+
+    // Finite job batches keep infinite promise chains interruptible by the host.
+    const jobs = this.runtime.executePendingJobs(1024);
+    if (jobs.error) {
+      const detail: unknown = this.vm.dump(jobs.error);
+      jobs.error.dispose();
+      this.fail(guestError(detail));
+    } else if (this.interrupted) {
+      this.fail("Script execution interrupted: instruction limit exceeded");
+    } else if (this.runtime.hasPendingJob()) {
+      setImmediate(() => this.pump());
+
+      return;
+    }
+
+    this.idle();
+  }
+
+  // Transfers a successful handle to the caller; failed handles are consumed here.
+  private takeValue(
+    outcome: ReturnType<QuickJSContext["evalCode"]>,
+  ): QuickJSHandle {
+    if (outcome.error) {
+      const detail: unknown = this.vm.dump(outcome.error);
+      outcome.error.dispose();
+      throw new Error(guestError(detail));
+    }
+
+    return outcome.value;
+  }
+
+  private callback(
+    name: string,
+    body: (...values: Json[]) => Json | undefined,
+  ) {
+    const handle = this.vm.newFunction(name, (...handles) => {
+      try {
+        const values = handles.map((handle) =>
+          jsonValue.parse(JSON.parse(this.vm.getString(handle))),
+        );
+        const output = body(...values);
+
+        return output === undefined
+          ? this.vm.undefined
+          : this.vm.newString(JSON.stringify(output));
+      } catch (error) {
+        return { error: this.vm.newError(errorText(error)) };
+      }
+    });
+
+    this.vm.setProp(this.vm.global, name, handle);
+    handle.dispose();
+  }
+
+  private installBridge() {
+    this.callback("__validate", (prompt = null, options = null) => {
+      this.host.validateAgent(prompt, options);
+    });
+
+    this.callback("__notify", (kind, text) => {
+      if (typeof text !== "string") {
+        throw new Error("phase/log expect a string");
+      }
+
+      if (kind === "phase") {
+        this.host.phase(text);
+      } else {
+        this.host.log(text);
+      }
+    });
+
+    this.callback("__dispatch", (id, kind, ...values) => {
+      if (typeof id !== "number") {
+        throw new Error("Invalid bridge request");
+      }
+
+      const task =
+        kind === "agent"
+          ? this.host.agent(values[0] ?? null, values[1] ?? {})
+          : this.host.workflow(
+              values[0] ?? null,
+              values[1] ?? null,
+              values[2] ?? {},
+            );
+
+      void task.then(
+        (value) => this.deliver(id, true, value),
+        (error) => this.deliver(id, false, errorText(error)),
+      );
+    });
+  }
+
+  private bootstrap(script: Script, args: Json) {
+    for (const [name, value] of [
+      ["__argsJson", args],
+      ["__metaJson", script.meta],
+    ] as const) {
+      const handle = this.vm.newString(JSON.stringify(value));
+      this.vm.setProp(this.vm.global, name, handle);
+      handle.dispose();
+    }
+
+    const exports = this.takeValue(this.vm.evalCode(guestSource, "guest.js"));
+    this.settle = this.vm.getProp(exports, 0);
+    this.encodeResult = this.vm.getProp(exports, 1);
+    exports.dispose();
+  }
+
+  private deliver(id: number, success: boolean, value: Json) {
+    if (this.closed || !this.settle) {
+      return;
+    }
+
+    this.hold();
+    const input = this.vm.newString(JSON.stringify([id, success, value]));
+    const outcome = this.vm.callFunction(this.settle, this.vm.undefined, input);
+    input.dispose();
+    try {
+      this.takeValue(outcome).dispose();
+    } catch (error) {
+      this.fail(error);
+    }
+
+    this.pump();
+  }
+
+  private deliverResult(
+    outcome: Awaited<ReturnType<QuickJSContext["resolvePromise"]>>,
+  ) {
+    if (this.closed) {
+      outcome.dispose();
+
+      return;
+    }
+
+    try {
+      if (outcome.error) {
+        throw new Error(guestError(this.vm.dump(outcome.error)));
+      }
+
+      if (!this.encodeResult) {
+        throw new Error("Result encoder unavailable");
+      }
+
+      const encoded = this.takeValue(
+        this.vm.callFunction(
+          this.encodeResult,
+          this.vm.undefined,
+          outcome.value,
+        ),
+      );
+
+      try {
+        this.resolveResult(
+          jsonValue.parse(JSON.parse(this.vm.getString(encoded))),
+        );
+      } finally {
+        encoded.dispose();
+      }
+    } catch (error) {
+      this.fail(error);
+    } finally {
+      outcome.dispose();
+    }
+  }
+}
+
 export async function executeScript(
   script: Script,
   args: Json,
   host: SandboxHost,
   limits: SandboxLimits = {},
 ): Promise<Json> {
-  let releaseExecution = host.holdExecution?.();
-  const hold = () => {
-    releaseExecution ??= host.holdExecution?.();
-  };
-  const idle = () => {
-    releaseExecution?.();
-    releaseExecution = undefined;
-  };
-  const engine = await getQuickJS();
-  const runtime = engine.newRuntime();
-  runtime.setMemoryLimit(limits.memoryBytes ?? 64 * 1024 * 1024);
-  runtime.setMaxStackSize(512 * 1024);
-  let instructions = 0;
-  let interrupted = false;
-  runtime.setInterruptHandler(() => {
-    interrupted =
-      host.signal.aborted || ++instructions > (limits.instructions ?? 100_000);
-    return interrupted;
-  });
-  const vm = runtime.newContext();
-  let closed = false;
-  let settle: QuickJSHandle | undefined;
-  let encodeResult: QuickJSHandle | undefined;
-  let resolveResult: (value: Json) => void = () => {};
-  let rejectResult: (error: Error) => void = () => {};
-  const result = new Promise<Json>((resolve, reject) => {
-    resolveResult = resolve;
-    rejectResult = reject;
-  });
-  function fail(error: unknown) {
-    rejectResult(new Error(errorText(error)));
-  }
-  function pump() {
-    if (closed) {
-      return;
-    }
-    // A finite job batch keeps an infinite promise chain interruptible.
-    const jobs = runtime.executePendingJobs(1024);
-    if (jobs.error) {
-      const detail: unknown = vm.dump(jobs.error);
-      jobs.error.dispose();
-      fail(guestError(detail));
-    } else if (interrupted) {
-      fail("Script execution interrupted: instruction limit exceeded");
-    } else if (runtime.hasPendingJob()) {
-      setImmediate(pump);
-      return;
-    }
-    idle();
-  }
-  function callback(
-    name: string,
-    body: (...values: Json[]) => Json | undefined,
-  ) {
-    const handle = vm.newFunction(name, (...handles) => {
-      try {
-        const values = handles.map((handle) =>
-          jsonValue.parse(JSON.parse(vm.getString(handle))),
-        );
-        const output = body(...values);
-        return output === undefined
-          ? vm.undefined
-          : vm.newString(JSON.stringify(output));
-      } catch (error) {
-        return { error: vm.newError(errorText(error)) };
-      }
-    });
-    vm.setProp(vm.global, name, handle);
-    handle.dispose();
-  }
-  callback("__validate", (prompt = null, options = null) => {
-    host.validateAgent(prompt, options);
-  });
-  callback("__notify", (kind, text) => {
-    if (typeof text !== "string") {
-      throw new Error("phase/log expect a string");
-    }
-    if (kind === "phase") {
-      host.phase(text);
-    } else {
-      host.log(text);
-    }
-  });
-  callback("__dispatch", (id, kind, ...values) => {
-    if (typeof id !== "number") {
-      throw new Error("Invalid bridge request");
-    }
-    const task =
-      kind === "agent"
-        ? host.agent(values[0] ?? null, values[1] ?? {})
-        : host.workflow(values[0] ?? null, values[1] ?? null, values[2] ?? {});
-    void task.then(
-      (value) => deliver(id, true, value),
-      (error) => deliver(id, false, errorText(error)),
-    );
-  });
-  function deliver(id: number, success: boolean, value: Json) {
-    if (closed || !settle) {
-      return;
-    }
-    hold();
-    const input = vm.newString(JSON.stringify([id, success, value]));
-    const call = vm.callFunction(settle, vm.undefined, input);
-    input.dispose();
-    if (call.error) {
-      const detail: unknown = vm.dump(call.error);
-      call.error.dispose();
-      fail(guestError(detail));
-    } else {
-      call.value.dispose();
-    }
-    pump();
-  }
-  function deliverResult(
-    outcome: Awaited<ReturnType<typeof vm.resolvePromise>>,
-  ) {
-    if (closed) {
-      outcome.dispose();
-      return;
-    }
-    try {
-      if (outcome.error) {
-        fail(guestError(vm.dump(outcome.error)));
-      } else {
-        if (!encodeResult) {
-          throw new Error("Result encoder unavailable");
-        }
-        const encoded = vm.callFunction(
-          encodeResult,
-          vm.undefined,
-          outcome.value,
-        );
-        try {
-          if (encoded.error) {
-            fail(guestError(vm.dump(encoded.error)));
-          } else {
-            resolveResult(
-              jsonValue.parse(JSON.parse(vm.getString(encoded.value))),
-            );
-          }
-        } finally {
-          encoded.dispose();
-        }
-      }
-    } catch (error) {
-      fail(error);
-    } finally {
-      outcome.dispose();
-    }
+  // Acquire before loading QuickJS: replay must also wait through VM preparation.
+  const release = host.holdExecution?.();
+  let runtime: QuickJSRuntime | undefined;
+  let session: GuestSession;
+  try {
+    const engine = await getQuickJS();
+    runtime = engine.newRuntime();
+    session = new GuestSession(runtime, host, limits, release);
+  } catch (error) {
+    runtime?.dispose();
+    release?.();
+    throw error;
   }
 
-  const onAbort = () => fail(host.signal.reason ?? "Workflow cancelled");
-  host.signal.addEventListener("abort", onAbort, { once: true });
-  try {
-    host.signal.throwIfAborted();
-    for (const [name, value] of [
-      ["__argsJson", args],
-      ["__metaJson", script.meta],
-    ] as const) {
-      const handle = vm.newString(JSON.stringify(value));
-      vm.setProp(vm.global, name, handle);
-      handle.dispose();
-    }
-    const evaluated = vm.evalCode(guestSource, "guest.js");
-    if (evaluated.error) {
-      const detail: unknown = vm.dump(evaluated.error);
-      evaluated.error.dispose();
-      throw new Error(guestError(detail));
-    }
-    settle = vm.getProp(evaluated.value, 0);
-    encodeResult = vm.getProp(evaluated.value, 1);
-    evaluated.value.dispose();
-    // Evaluate user code separately, outside the bootstrap closure. Otherwise it
-    // could name captured NativeDate or the host dispatch function directly.
-    const execution = vm.evalCode(
-      `(async () => {\n${script.body}\n})()`,
-      "workflow.js",
-    );
-    if (execution.error) {
-      const detail: unknown = vm.dump(execution.error);
-      execution.error.dispose();
-      throw new Error(guestError(detail));
-    }
-    void vm.resolvePromise(execution.value).then(deliverResult, fail);
-    execution.value.dispose();
-    pump();
-    return await result;
-  } finally {
-    closed = true;
-    host.signal.removeEventListener("abort", onAbort);
-    idle();
-    settle?.dispose();
-    encodeResult?.dispose();
-    vm.dispose();
-    runtime.dispose();
-  }
+  return session.run(script, args);
 }

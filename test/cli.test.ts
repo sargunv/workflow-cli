@@ -68,8 +68,14 @@ const ready = z.object({
   directory: z.string(),
 });
 async function waitActive(root: string, id: string, count: number) {
-  for (let i = 0; i < 100; i++) {
+  // CI workers may still be cold-loading QuickJS and fixture processes after readiness.
+  const deadline = performance.now() + 10_000;
+  let observed = "no report";
+  while (performance.now() < deadline) {
     const report = await inspectReport(root, id);
+    observed = JSON.stringify(
+      report.activeAgents.map(({ id, status }) => ({ id, status })),
+    );
     if (
       report.activeAgents.filter((agent) => agent.status === "running")
         .length === count
@@ -81,14 +87,22 @@ async function waitActive(root: string, id: string, count: number) {
     }
     await setTimeout(25);
   }
-  throw Error("Agents did not start");
+  throw Error(
+    `Expected ${count} running agents within 10s; last observed: ${observed}`,
+  );
 }
 void test("background skip and stop control the exact run; show includes active prompts", async () => {
   const f = await fixture(
     "return parallel([()=>agent('block first'),()=>agent('block second')]);",
   );
+  // Model a small CI runner; the test needs two concurrent blocked agents.
+  await mkdir(join(f.cwd, ".workflow"));
+  await writeFile(
+    join(f.cwd, ".workflow", "config.json"),
+    JSON.stringify({ concurrency: 1 }),
+  );
   const launched = await command(
-    ["run", f.script, "--background", "--json"],
+    ["run", f.script, "--background", "--json", "--concurrency", "2"],
     f,
   );
   assert.equal(launched.code, 0, launched.stderr);

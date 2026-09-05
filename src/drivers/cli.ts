@@ -8,10 +8,13 @@ import type { Detection, Driver, DriverRequest, ModelInfo } from "../types.js";
 import { effort, errorText, ProcessOwnershipError } from "../types.js";
 import { CliEventParser, array, object, string } from "./events.js";
 import { capture, findBinary, ManagedProcess } from "./process.js";
+
 // Flags and event shapes verified in BACKENDS.md against Claude 2.1.261,
 // Codex 0.153.3 and Cursor 2026.09.02. Tests use fixtures, never subscriptions.
 export type CliBackend = "claude" | "codex" | "cursor";
+
 const binaries = { claude: "claude", codex: "codex", cursor: "cursor-agent" };
+
 const capabilityNotes: Record<CliBackend, string> = {
   claude:
     "Static model IDs; configured default and per-model effort support are not exposed by the CLI. --effort accepts low, medium, high, xhigh, max; requested levels are passed to Claude for validation. Minimal (--bare) disables OAuth/keychain authentication; Workflow enables it only with ANTHROPIC_API_KEY. Helper-only authentication is not discovered.",
@@ -20,6 +23,7 @@ const capabilityNotes: Record<CliBackend, string> = {
   cursor:
     "Effort is encoded in the listed model IDs (for example -high or -xhigh); a separate effort override is unsupported and warns when ignored.",
 };
+
 const claudeModels: ModelInfo[] = [
   {
     id: "claude-fable-5-1",
@@ -33,6 +37,7 @@ const claudeModels: ModelInfo[] = [
 export function codexModels(output: string): ModelInfo[] {
   const data: unknown = JSON.parse(output);
   const entries = Array.isArray(data) ? data : array(object(data).models);
+
   return entries
     .map(object)
     .filter((model) => model.visibility !== "hide")
@@ -62,116 +67,157 @@ export function cursorModels(output: string): ModelInfo[] {
     );
 }
 
+interface CliInvocation {
+  argv: string[];
+  stdin: string;
+}
+
+function claudeArguments(request: DriverRequest): CliInvocation {
+  const argv = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--dangerously-skip-permissions",
+    "--no-session-persistence",
+    "--append-system-prompt",
+    request.systemAppend,
+  ];
+
+  if (request.model) {
+    argv.push("--model", request.model);
+  }
+
+  if (request.effort) {
+    argv.push("--effort", request.effort);
+  }
+
+  if (request.schema) {
+    argv.push("--json-schema", JSON.stringify(request.schema));
+  }
+
+  if (request.minimal) {
+    argv.push("--bare");
+  }
+
+  // Exclude orchestration tools; leaves cannot re-delegate their assignment.
+  const deny = ["Agent", "Workflow"];
+  if (request.toolPolicy === "read-only") {
+    argv.push("--tools", "Read,Grep,Glob");
+  } else if (request.toolPolicy) {
+    if (request.toolPolicy.allow) {
+      argv.push("--tools", request.toolPolicy.allow.join(","));
+    }
+
+    if (request.toolPolicy.deny) {
+      deny.push(...request.toolPolicy.deny);
+    }
+  }
+
+  argv.push("--disallowedTools", deny.join(","));
+
+  return { argv, stdin: request.prompt };
+}
+
+function codexArguments(
+  request: DriverRequest,
+  schemaPath?: string,
+): CliInvocation {
+  const argv = [
+    "exec",
+    "--json",
+    "--skip-git-repo-check",
+    "--ephemeral",
+    "-C",
+    request.cwd,
+  ];
+
+  if (request.toolPolicy === "read-only") {
+    argv.push("-s", "read-only");
+  } else if (request.toolPolicy) {
+    throw new Error("Codex cannot enforce allow/deny tool lists");
+  } else {
+    argv.push("--dangerously-bypass-approvals-and-sandbox");
+  }
+
+  if (request.model) {
+    argv.push("-m", request.model);
+  }
+
+  if (request.effort) {
+    argv.push("-c", `model_reasoning_effort=${request.effort}`);
+  }
+
+  if (request.schema && schemaPath) {
+    argv.push("--output-schema", schemaPath);
+  }
+
+  if (request.minimal) {
+    throw new Error("Codex does not support minimal context mode");
+  }
+
+  argv.push("-");
+
+  return { argv, stdin: `${request.systemAppend}\n\nTask:\n${request.prompt}` };
+}
+
+function cursorArguments(request: DriverRequest): CliInvocation {
+  const argv = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--yolo",
+    "--trust",
+    "--workspace",
+    request.cwd,
+  ];
+
+  if (request.toolPolicy === "read-only") {
+    argv.push("--mode", "plan");
+  } else if (request.toolPolicy) {
+    throw new Error("Cursor cannot enforce allow/deny tool lists");
+  }
+
+  if (request.model) {
+    argv.push("--model", request.model);
+  }
+
+  if (request.effort) {
+    request.onEvent({
+      type: "warning",
+      text: "Cursor effort must be selected using a model ID listed by workflow info; separate effort was not applied",
+    });
+  }
+
+  if (request.minimal) {
+    throw new Error("Cursor does not support minimal context mode");
+  }
+
+  const combinedPrompt = `${request.systemAppend}\n\nTask:\n${request.prompt}`;
+  if (Buffer.byteLength(combinedPrompt) > 100_000) {
+    throw new Error(
+      "Cursor accepts prompts through argv; prompt exceeds safe 100 kB limit",
+    );
+  }
+
+  argv.push(combinedPrompt);
+
+  return { argv, stdin: "" };
+}
+
 export function cliArguments(
   backend: CliBackend,
   request: DriverRequest,
   schemaPath?: string,
-): { argv: string[]; stdin: string } {
-  let argv: string[];
-  let stdin = "";
-  const combinedPrompt = `${request.systemAppend}\n\nTask:\n${request.prompt}`;
-  if (backend === "claude") {
-    argv = [
-      "-p",
-      "--output-format",
-      "stream-json",
-      "--verbose",
-      "--dangerously-skip-permissions",
-      "--no-session-persistence",
-      "--append-system-prompt",
-      request.systemAppend,
-    ];
-    if (request.model) {
-      argv.push("--model", request.model);
-    }
-    if (request.effort) {
-      argv.push("--effort", request.effort);
-    }
-    if (request.schema) {
-      argv.push("--json-schema", JSON.stringify(request.schema));
-    }
-    if (request.minimal) {
-      argv.push("--bare");
-    }
-    // Exclude orchestration tools; leaves cannot re-delegate their assignment.
-    const deny = ["Agent", "Workflow"];
-    if (request.toolPolicy === "read-only") {
-      argv.push("--tools", "Read,Grep,Glob");
-    } else if (request.toolPolicy) {
-      if (request.toolPolicy.allow) {
-        argv.push("--tools", request.toolPolicy.allow.join(","));
-      }
-      if (request.toolPolicy.deny) {
-        deny.push(...request.toolPolicy.deny);
-      }
-    }
-    argv.push("--disallowedTools", deny.join(","));
-    stdin = request.prompt;
-  } else if (backend === "codex") {
-    argv = [
-      "exec",
-      "--json",
-      "--skip-git-repo-check",
-      "--ephemeral",
-      "-C",
-      request.cwd,
-    ];
-    if (request.toolPolicy === "read-only") {
-      argv.push("-s", "read-only");
-    } else if (request.toolPolicy) {
-      throw new Error("Codex cannot enforce allow/deny tool lists");
-    } else {
-      argv.push("--dangerously-bypass-approvals-and-sandbox");
-    }
-    if (request.model) {
-      argv.push("-m", request.model);
-    }
-    if (request.effort) {
-      argv.push("-c", `model_reasoning_effort=${request.effort}`);
-    }
-    if (request.schema && schemaPath) {
-      argv.push("--output-schema", schemaPath);
-    }
-    if (request.minimal) {
-      throw new Error("Codex does not support minimal context mode");
-    }
-    argv.push("-");
-    stdin = combinedPrompt;
-  } else {
-    argv = [
-      "-p",
-      "--output-format",
-      "stream-json",
-      "--yolo",
-      "--trust",
-      "--workspace",
-      request.cwd,
-    ];
-    if (request.toolPolicy === "read-only") {
-      argv.push("--mode", "plan");
-    } else if (request.toolPolicy) {
-      throw new Error("Cursor cannot enforce allow/deny tool lists");
-    }
-    if (request.model) {
-      argv.push("--model", request.model);
-    }
-    if (request.effort) {
-      request.onEvent({
-        type: "warning",
-        text: "Cursor effort must be selected using a model ID listed by workflow info; separate effort was not applied",
-      });
-    }
-    if (request.minimal) {
-      throw new Error("Cursor does not support minimal context mode");
-    }
-    if (Buffer.byteLength(combinedPrompt) > 100_000) {
-      throw new Error(
-        "Cursor accepts prompts through argv; prompt exceeds safe 100 kB limit",
-      );
-    }
-    argv.push(combinedPrompt);
+): CliInvocation {
+  switch (backend) {
+    case "claude":
+      return claudeArguments(request);
+    case "codex":
+      return codexArguments(request, schemaPath);
+    case "cursor":
+      return cursorArguments(request);
   }
-  return { argv, stdin };
 }
 
 export class CliDriver implements Driver {
@@ -190,6 +236,7 @@ export class CliDriver implements Driver {
     if (this.detection) {
       return this.detection;
     }
+
     const binary = await findBinary(binaries[this.name]);
     const detection: Detection = {
       name: this.name,
@@ -207,6 +254,7 @@ export class CliDriver implements Driver {
         this.name === "claude" && !!process.env.ANTHROPIC_API_KEY?.trim(),
       usage: true,
     };
+
     detection.notes.push(capabilityNotes[this.name]);
     if (!binary) {
       detection.notes.push(
@@ -225,6 +273,7 @@ export class CliDriver implements Driver {
         detection.available = false;
         detection.notes.push(errorText(error));
       }
+
       if (detection.available && this.name !== "claude") {
         try {
           const output = await capture(
@@ -234,11 +283,13 @@ export class CliDriver implements Driver {
             this.transport.discoveryTimeoutMs,
             signal,
           );
+
           if (this.name === "codex") {
             detection.models = codexModels(output);
           } else {
             detection.models = cursorModels(output);
           }
+
           if (!detection.models.length) {
             detection.notes.push(
               "Model listing was not recognized; backend default is used when model is omitted",
@@ -249,8 +300,10 @@ export class CliDriver implements Driver {
         }
       }
     }
+
     signal.throwIfAborted();
     this.detection = detection;
+
     return detection;
   }
 
@@ -261,6 +314,7 @@ export class CliDriver implements Driver {
         `${this.name} unavailable: ${detection.notes.join("; ")}`,
       );
     }
+
     const temporary = await mkdtemp(join(tmpdir(), "workflow-driver-"));
     try {
       const schemaPath = request.schema
@@ -269,6 +323,7 @@ export class CliDriver implements Driver {
       if (schemaPath) {
         await writeFile(schemaPath, JSON.stringify(request.schema));
       }
+
       const invocation = cliArguments(this.name, request, schemaPath);
       const parser = new CliEventParser(this.name, request.onEvent);
       const child = new ManagedProcess(detection.binary, invocation.argv, {
@@ -277,11 +332,13 @@ export class CliDriver implements Driver {
         timeoutMs: this.transport.agentTimeoutMs,
         onLine: (line, channel) => parser.line(line, channel),
       });
+
       child.end(invocation.stdin);
       const exit = await child.exited;
       if (exit.cleanupUncertain) {
         throw new ProcessOwnershipError(exit.error);
       }
+
       return parser.finish(
         exit.code,
         exit.error ?? (exit.code !== 0 ? exit.stderr : undefined),

@@ -2,6 +2,7 @@ import { setTimeout } from "node:timers/promises";
 
 import { inspectReport } from "./runtime/control.js";
 import type { Report } from "./runtime/store.js";
+
 export async function waitForRun(
   root: string,
   id: string,
@@ -15,6 +16,7 @@ export async function waitForRun(
     if (report.status !== "running") {
       return report;
     }
+
     await setTimeout(250, undefined, { signal });
   }
 }

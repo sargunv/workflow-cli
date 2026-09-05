@@ -41,6 +41,7 @@
           );
         }
       }
+
       return item;
     });
   }
@@ -61,9 +62,11 @@
       if (!values.length) {
         throw new Error("new Date() is nondeterministic");
       }
+
       return Reflect.construct(target, values, constructor);
     },
   });
+
   Object.defineProperty(NativeDate.prototype, "constructor", {
     value: SafeDate,
   });
@@ -82,6 +85,7 @@
   function invoke(kind, ...values) {
     const encoded = values.map(encode);
     const id = ++sequence;
+
     return new Promise((resolve, reject) => {
       pending.set(id, { resolve, reject });
       try {
@@ -103,6 +107,7 @@
 
   install("agent", (prompt, options = {}) => {
     validate(encode(prompt), encode(options));
+
     return invoke("agent", prompt, options);
   });
   install("workflow", (ref, args = null, options = {}) => {
@@ -115,6 +120,7 @@
     if (!Array.isArray(thunks) || thunks.length > 4096) {
       throw new Error("parallel requires an array of at most 4096 functions");
     }
+
     return Promise.all(
       thunks.map(async (thunk) => {
         try {
@@ -130,6 +136,7 @@
     if (!Array.isArray(items) || items.length > 4096) {
       throw new Error("pipeline requires an array of at most 4096 items");
     }
+
     return Promise.all(
       items.map(async (item, index) => {
         let result = item;
@@ -140,6 +147,7 @@
             return null;
           }
         }
+
         return result;
       }),
     );
@@ -162,6 +170,7 @@
     if (!deferred) {
       throw new Error("Unknown bridge response");
     }
+
     pending.delete(id);
     if (success) {
       deferred.resolve(value);

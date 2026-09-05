@@ -15,6 +15,7 @@ function object(value: Json | undefined): Record<string, Json> | undefined {
     ? value
     : undefined;
 }
+
 // Traverse schema locations only: const/enum/default/examples contain instance data.
 function subschemas(schema: Record<string, Json>): Record<string, Json>[] {
   const nodes: Record<string, Json>[] = [];
@@ -24,6 +25,7 @@ function subschemas(schema: Record<string, Json>): Record<string, Json>[] {
       nodes.push(node);
     }
   };
+
   for (const key of [
     "properties",
     "patternProperties",
@@ -38,6 +40,7 @@ function subschemas(schema: Record<string, Json>): Record<string, Json>[] {
       }
     }
   }
+
   for (const key of [
     "additionalProperties",
     "additionalItems",
@@ -50,6 +53,7 @@ function subschemas(schema: Record<string, Json>): Record<string, Json>[] {
   ]) {
     add(schema[key]);
   }
+
   for (const key of ["allOf", "anyOf", "oneOf", "items"]) {
     const value = schema[key];
     if (Array.isArray(value)) {
@@ -58,18 +62,22 @@ function subschemas(schema: Record<string, Json>): Record<string, Json>[] {
       add(value);
     }
   }
+
   return nodes;
 }
+
 // A contradiction in an optional property or one alternative does not make the
 // root impossible. Only reject constraints proven active for the node's type.
 function impossible(value: Json): boolean {
   if (value === false) {
     return true;
   }
+
   const schema = object(value);
   if (!schema) {
     return false;
   }
+
   const boundsByType: Record<string, readonly [string, string]> = {
     object: ["minProperties", "maxProperties"],
     array: ["minItems", "maxItems"],
@@ -77,6 +85,7 @@ function impossible(value: Json): boolean {
     number: ["minimum", "maximum"],
     integer: ["minimum", "maximum"],
   };
+
   const bounds =
     typeof schema.type === "string" && Object.hasOwn(boundsByType, schema.type)
       ? boundsByType[schema.type]
@@ -93,6 +102,7 @@ function impossible(value: Json): boolean {
       return true;
     }
   }
+
   if (schema.type === "object" && Array.isArray(schema.required)) {
     const properties = object(schema.properties) ?? {};
     for (const key of schema.required) {
@@ -104,6 +114,7 @@ function impossible(value: Json): boolean {
         return true;
       }
     }
+
     if (
       typeof schema.maxProperties === "number" &&
       new Set(schema.required).size > schema.maxProperties
@@ -111,14 +122,17 @@ function impossible(value: Json): boolean {
       return true;
     }
   }
+
   if (Array.isArray(schema.allOf) && schema.allOf.some(impossible)) {
     return true;
   }
+
   for (const key of ["anyOf", "oneOf"]) {
     if (Array.isArray(schema[key]) && schema[key].every(impossible)) {
       return true;
     }
   }
+
   return false;
 }
 
@@ -126,6 +140,7 @@ export function compileSchema(schema: Record<string, Json>): ValidateFunction {
   if (schema.type !== "object" || !object(schema.properties)) {
     throw new Error("Schema root must have type: object and properties");
   }
+
   const props = object(schema.properties) ?? {};
   if (
     schema.required !== undefined &&
@@ -136,13 +151,16 @@ export function compileSchema(schema: Record<string, Json>): ValidateFunction {
   ) {
     throw new Error("Schema required must be a subset of properties");
   }
+
   if (impossible(schema)) {
     throw new Error("Unsatisfiable schema: contradictory active constraints");
   }
+
   const validate = ajv.compile(schema);
   if (schema.const !== undefined && !validate(schema.const)) {
     throw new Error("Unsatisfiable schema: const fails its constraints");
   }
+
   if (
     Array.isArray(schema.enum) &&
     !schema.enum.some((value) => validate(value))
@@ -151,6 +169,7 @@ export function compileSchema(schema: Record<string, Json>): ValidateFunction {
       "Unsatisfiable schema: no enum value satisfies constraints",
     );
   }
+
   return validate;
 }
 
@@ -160,6 +179,7 @@ export function schemaError(validate: ValidateFunction): string {
 
 export function parseStructured(text: string): Json {
   const fenced = /^\s*```(?:json)?\s*\n([\s\S]*?)\n```\s*$/.exec(text);
+
   return JSON.parse(fenced?.[1] ?? text);
 }
 
@@ -168,10 +188,12 @@ export function codexNativeCompatible(schema: Record<string, Json>): boolean {
     if (Array.isArray(value)) {
       return value.every(visit);
     }
+
     const node = object(value);
     if (!node) {
       return true;
     }
+
     if (node.type === "object" || node.properties) {
       const props = object(node.properties);
       if (
@@ -186,7 +208,9 @@ export function codexNativeCompatible(schema: Record<string, Json>): boolean {
         return false;
       }
     }
+
     return subschemas(node).every(visit);
   };
+
   return visit(schema);
 }

@@ -9,7 +9,9 @@ if (!args || typeof args.task !== "string" || !args.task.trim()) {
     "Pass --args with a nonempty task string; include absolute repository paths.",
   );
 }
+
 const readOnly = { toolPolicy: "read-only" };
+
 if (
   !Array.isArray(args.requirements) ||
   !Object.hasOwn(args, "evidence") ||
@@ -19,6 +21,7 @@ if (
     "Supply requirements array, evidence, and result alongside task.",
   );
 }
+
 const schema = {
   type: "object",
   properties: {
@@ -29,6 +32,7 @@ const schema = {
   required: ["missing", "unsupported", "explanation"],
   additionalProperties: false,
 };
+
 const critic = await agent(
   `Task: ${args.task}. Requirements: ${JSON.stringify(args.requirements)}. ` +
     `Evidence: ${JSON.stringify(args.evidence)}. Proposed result: ${JSON.stringify(args.result)}. ` +
@@ -36,6 +40,7 @@ const critic = await agent(
     "Plans and compilation alone are not proof of completed runtime behavior. Do not edit.",
   { ...readOnly, phase: "Completeness", label: "Adversarial critic", schema },
 );
+
 if (critic === null) {
   log("Completeness critic failed; completion is unverified");
 } else {
@@ -43,4 +48,5 @@ if (critic === null) {
     `Critic found ${critic.missing.length} missing requirements and ${critic.unsupported.length} unsupported claims`,
   );
 }
+
 return { proposedResult: args.result, critic };

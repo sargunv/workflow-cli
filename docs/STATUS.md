@@ -93,3 +93,47 @@ and MCP passthrough remain documented design choices, as required by VISION.md.
 
 The validation above is local evidence; no remote CI result is claimed for these
 changes.
+
+## Structure and spacing pass on 2026-09-05
+
+The first readability checkpoint was committed and pushed as `6f744e0`. A new
+independent audit found that its spacing and method composition still needed
+work. This pass separates class members, declarations, logical method paragraphs
+and example stages, and puts public lifecycle methods before private helpers.
+
+`GuestSession` now owns VM handles and the job pump explicitly. Protocol
+routing, backend argument construction, CLI input preparation, process stream
+framing, exit observation, file hashing and child archive operations have named
+boundaries. Rendering uses named text parts instead of dense conditional
+templates. Shared errno checks and comments expose important ownership and
+ordering rules.
+
+An AST decision count guided the structural review. It counts each function
+independently (excluding nested functions): one plus branches, loops, catches,
+conditional expressions and logical/nullish operators. It is a review aid, not a
+complexity gate; schema validation and cleanup keep real dependencies together.
+
+| Function                   | Checkpoint | This pass |
+| -------------------------- | ---------: | --------: |
+| Static call visitor        |         36 |        11 |
+| CLI argument dispatcher    |         24 |         4 |
+| ACP line router            |         14 |         4 |
+| Claude/Cursor event router |         24 |        12 |
+
+The full offline suite passed 84/84 after the structural changes; local
+typecheck, lint/format, build, fresh installed-package execution and terminal
+checks passed. Final review follow-ups and their validation are recorded
+separately below.
+
+The pushed checkpoint's macOS CI test expected two simultaneous agents while
+using a CPU-derived default that can be one. The test now simulates a one-agent
+configuration and explicitly requests two workers. Its startup wait also uses a
+bounded deadline and reports the last observed states on failure. Later CI
+results are tracked in GitHub Actions.
+
+- [Astra structure review](reviews/astra-structure.md): all four criteria
+  approved after comment and method-order corrections; independent 84-test full
+  run and 10-test CLI follow-up passed.
+- [Fable structure review](reviews/fable-structure.md): all four criteria
+  approved after bounded rechecks of the same corrections; project check and
+  typecheck passed.

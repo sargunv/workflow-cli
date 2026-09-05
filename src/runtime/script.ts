@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 
 import { parse } from "acorn";
-import type { Expression } from "acorn";
+import type { Expression, SpreadElement } from "acorn";
 import { simple } from "acorn-walk";
 
 import { metadata } from "../types.js";
@@ -46,6 +46,7 @@ function literal(node: Expression): Json {
             "meta must contain only literals (no holes or spreads)",
           );
         }
+
         return literal(item);
       });
     case "ObjectExpression": {
@@ -60,23 +61,89 @@ function literal(node: Expression): Json {
         ) {
           throw new Error("meta must contain only literal properties");
         }
+
         let key: string | null = null;
         if (property.key.type === "Identifier") {
           key = property.key.name;
         } else if (property.key.type === "Literal") {
           key = String(property.key.value);
         }
+
         if (key === null || Object.hasOwn(result, key)) {
           throw new Error("Invalid or duplicate meta property");
         }
+
         result[key] = literal(property.value);
       }
+
       return result;
     }
   }
+
   throw new Error(
     "meta must contain only pure literals; expressions, functions, and interpolation are not allowed",
   );
+}
+
+function staticChildReference(
+  node: Expression | SpreadElement | undefined,
+): Json | undefined {
+  if (node?.type === "Literal" && typeof node.value === "string") {
+    return node.value;
+  }
+
+  if (node?.type !== "ObjectExpression") {
+    return undefined;
+  }
+
+  try {
+    const ref = literal(node);
+    if (
+      ref &&
+      typeof ref === "object" &&
+      !Array.isArray(ref) &&
+      typeof ref.scriptPath === "string"
+    ) {
+      return ref;
+    }
+  } catch {
+    // Computed references cannot be preflighted; resolve them at first use.
+  }
+
+  return undefined;
+}
+
+function staticStringOptions(
+  node: Expression | SpreadElement | undefined,
+): [string, string][] {
+  if (node?.type !== "ObjectExpression") {
+    return [];
+  }
+
+  const entries: [string, string][] = [];
+  for (const property of node.properties) {
+    if (
+      property.type !== "Property" ||
+      property.computed ||
+      property.value.type !== "Literal" ||
+      typeof property.value.value !== "string"
+    ) {
+      continue;
+    }
+
+    let key: string | undefined;
+    if (property.key.type === "Identifier") {
+      key = property.key.name;
+    } else if (property.key.type === "Literal") {
+      key = String(property.key.value);
+    }
+
+    if (key !== undefined) {
+      entries.push([key, property.value.value]);
+    }
+  }
+
+  return entries;
 }
 
 export function parseScript(source: string): Script {
@@ -95,6 +162,7 @@ export function parseScript(source: string): Script {
       "Script must begin with export const meta = { name, description }",
     );
   }
+
   const declaration = first.declaration.declarations[0];
   if (
     first.declaration.declarations.length !== 1 ||
@@ -104,7 +172,9 @@ export function parseScript(source: string): Script {
   ) {
     throw new Error("First declaration must be export const meta");
   }
+
   const meta = metadata.parse(literal(declaration.init));
+
   for (const statement of ast.body.slice(1)) {
     if (
       statement.type.startsWith("Import") ||
@@ -115,9 +185,11 @@ export function parseScript(source: string): Script {
       );
     }
   }
+
   const backends = new Set<string>();
   const children: Json[] = [];
   const profiles = new Set<string>();
+
   simple(ast, {
     ImportExpression() {
       throw new Error("Dynamic imports are unavailable in workflow scripts");
@@ -126,71 +198,38 @@ export function parseScript(source: string): Script {
       if (node.callee.type !== "Identifier") {
         return;
       }
+
       const name = node.callee.name;
       if (name !== "agent" && name !== "workflow") {
         return;
       }
-      if (
-        name === "workflow" &&
-        node.arguments[0]?.type === "Literal" &&
-        typeof node.arguments[0].value === "string"
-      ) {
-        children.push(node.arguments[0].value);
-      }
-      if (
-        name === "workflow" &&
-        node.arguments[0]?.type === "ObjectExpression"
-      ) {
-        try {
-          const ref = literal(node.arguments[0]);
-          if (
-            ref &&
-            typeof ref === "object" &&
-            !Array.isArray(ref) &&
-            typeof ref.scriptPath === "string"
-          ) {
-            children.push(ref);
-          }
-        } catch {
-          /* computed references resolve at first use */
+
+      if (name === "workflow") {
+        const child = staticChildReference(node.arguments[0]);
+        if (child !== undefined) {
+          children.push(child);
         }
       }
+
       const options = node.arguments[name === "agent" ? 1 : 2];
-      if (name === "agent" && options?.type === "ObjectExpression") {
-        for (const prop of options.properties) {
-          if (
-            prop.type === "Property" &&
-            !prop.computed &&
-            ((prop.key.type === "Identifier" && prop.key.name === "profile") ||
-              (prop.key.type === "Literal" && prop.key.value === "profile")) &&
-            prop.value.type === "Literal" &&
-            typeof prop.value.value === "string"
-          ) {
-            profiles.add(prop.value.value);
-          }
+      for (const [key, value] of staticStringOptions(options)) {
+        if (key === "backend") {
+          backends.add(value);
         }
-      }
-      if (options?.type === "ObjectExpression") {
-        for (const prop of options.properties) {
-          if (
-            prop.type === "Property" &&
-            !prop.computed &&
-            ((prop.key.type === "Identifier" && prop.key.name === "backend") ||
-              (prop.key.type === "Literal" && prop.key.value === "backend")) &&
-            prop.value.type === "Literal" &&
-            typeof prop.value.value === "string"
-          ) {
-            backends.add(prop.value.value);
-          }
+
+        if (name === "agent" && key === "profile") {
+          profiles.add(value);
         }
       }
     },
   });
+
   // Keep line positions intact for diagnostics while removing the only export.
   const body =
     source.slice(0, first.start) +
     source.slice(first.start, first.end).replace(/[^\n]/g, " ") +
     source.slice(first.end);
+
   return {
     source,
     body,
@@ -212,5 +251,6 @@ export async function readScriptFile(
       `Workflow script must be a regular file; use stdin for streams: ${path}`,
     );
   }
+
   return readFile(path, { encoding: "utf8", signal });
 }

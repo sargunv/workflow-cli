@@ -7,6 +7,7 @@ export type Json =
   | string
   | Json[]
   | { [key: string]: Json };
+
 export const jsonValue: z.ZodType<Json> = z.lazy(() =>
   z.union([
     z.null(),
@@ -17,6 +18,7 @@ export const jsonValue: z.ZodType<Json> = z.lazy(() =>
     z.record(z.string(), jsonValue),
   ]),
 );
+
 export const backendName = z.enum([
   "claude",
   "codex",
@@ -25,8 +27,11 @@ export const backendName = z.enum([
   "cursor",
   "qwen",
 ]);
+
 export type BackendName = z.infer<typeof backendName>;
+
 export const effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
+
 export const toolPolicy = z.union([
   z.literal("read-only"),
   z
@@ -36,6 +41,7 @@ export const toolPolicy = z.union([
     })
     .strict(),
 ]);
+
 export const agentOptions = z
   .object({
     label: z.string().optional(),
@@ -51,7 +57,9 @@ export const agentOptions = z
     minimal: z.boolean().optional(),
   })
   .strict();
+
 export type AgentOptions = z.infer<typeof agentOptions>;
+
 export const metadata = z
   .object({
     name: z.string().min(1),
@@ -70,7 +78,9 @@ export const metadata = z
       .optional(),
   })
   .strict();
+
 export type Metadata = z.infer<typeof metadata>;
+
 export interface Usage {
   input: number;
   output: number;
@@ -182,16 +192,23 @@ export const agentRecord = z.object({
     })
     .optional(),
 });
+
 export type AgentRecord = z.infer<typeof agentRecord>;
+
+export function isErrno(error: unknown, code: string): boolean {
+  return error instanceof Error && "code" in error && error.code === code;
+}
 
 export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+// Stable key ordering makes structurally equal JSON share a replay identity.
 export function canonical(value: Json): string {
   if (Array.isArray(value)) {
     return "[" + value.map(canonical).join(",") + "]";
   }
+
   if (value !== null && typeof value === "object") {
     return (
       "{" +
@@ -202,5 +219,6 @@ export function canonical(value: Json): string {
       "}"
     );
   }
+
   return JSON.stringify(value);
 }

@@ -5,20 +5,26 @@ interface Waiter {
   abort: () => void;
 }
 
+/** FIFO admission with cancellation for queued callers and one-shot releases. */
 export class Semaphore {
   private active = 0;
+
   private queue: Waiter[] = [];
+
   constructor(private limit: number) {
     if (!Number.isInteger(limit) || limit < 1) {
       throw new Error("Concurrency must be positive");
     }
   }
+
   acquire(signal: AbortSignal): Promise<() => void> {
     signal.throwIfAborted();
     if (this.active < this.limit) {
       this.active++;
+
       return Promise.resolve(this.release());
     }
+
     return new Promise((resolve, reject) => {
       const waiter: Waiter = {
         resolve,
@@ -29,20 +35,25 @@ export class Semaphore {
           reject(signal.reason);
         },
       };
+
       this.queue.push(waiter);
       signal.addEventListener("abort", waiter.abort, { once: true });
     });
   }
+
   private release(): () => void {
     let released = false;
+
     return () => {
       if (released) {
         return;
       }
+
       released = true;
       const next = this.queue.shift();
       if (next) {
         next.signal.removeEventListener("abort", next.abort);
+        // Hand the occupied slot directly to the next waiter; active stays constant.
         next.resolve(this.release());
       } else {
         this.active--;

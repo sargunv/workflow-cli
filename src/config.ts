@@ -4,7 +4,9 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
+import { isErrno } from "./types.js";
 import { agentOptions, backendName } from "./types.js";
+
 export const transportSchema = z
   .object({
     agentTimeoutMs: z.number().int().min(50).max(86_400_000).default(900_000),
@@ -12,8 +14,11 @@ export const transportSchema = z
     launchTimeoutMs: z.number().int().min(50).max(3_600_000).default(120_000),
   })
   .strict();
+
 export type TransportSettings = z.infer<typeof transportSchema>;
+
 export const defaultTransport = transportSchema.parse({});
+
 export const configSchema = z
   .object({
     backend: backendName.default("claude"),
@@ -61,16 +66,19 @@ export const configSchema = z
     schemaRetries: z.number().int().min(0).max(5).default(2),
   })
   .strict();
+
 export type Config = z.infer<typeof configSchema>;
+
 async function readOptional(path: string): Promise<Record<string, unknown>> {
   try {
     return z
       .record(z.string(), z.unknown())
       .parse(JSON.parse(await readFile(path, "utf8")));
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    if (isErrno(error, "ENOENT")) {
       return {};
     }
+
     throw new Error(`Invalid config ${path}`, { cause: error });
   }
 }
@@ -83,6 +91,8 @@ export async function loadConfig(cwd: string): Promise<Config> {
       "config.json",
     ),
   );
+
   const local = await readOptional(join(cwd, ".workflow", "config.json"));
+
   return configSchema.parse({ ...global, ...local });
 }

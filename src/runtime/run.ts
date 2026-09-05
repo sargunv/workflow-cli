@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 
 import type { Config } from "../config.js";
+import { isErrno } from "../types.js";
 import {
   agentOptions,
   agentRecord,
@@ -83,22 +84,41 @@ function toJournalValue(record: AgentRecord): Json {
   return jsonValue.parse(JSON.parse(JSON.stringify(record)));
 }
 
+/** Owns root admission, replay and durable records; live leaves own their resources. */
 export class WorkflowRun {
   readonly store: RunStore;
+
   private readonly controller = new AbortController();
+
   private readonly semaphore: Semaphore;
+
   private readonly replay: Replay;
-  private detections = new Map<BackendName, Promise<Detection>>();
+
+  private readonly detections = new Map<BackendName, Promise<Detection>>();
+
   private count = 0;
-  private pending = new Set<Promise<Json>>();
-  private controllers = new Map<number, AbortController>();
-  private scripts = new Map<string, Script>();
-  private childResolutions = new Map<string, string>();
-  private savedChildren = new Map<string, { file: string; sha256: string }>();
+
+  private readonly pending = new Set<Promise<Json>>();
+
+  private readonly controllers = new Map<number, AbortController>();
+
+  private readonly scripts = new Map<string, Script>();
+
+  private readonly childResolutions = new Map<string, string>();
+
+  private readonly savedChildren = new Map<
+    string,
+    { file: string; sha256: string }
+  >();
+
   private archivedChildren: z.infer<typeof childArchive> = [];
+
   private stopped = false;
+
   private failure: Error | undefined;
+
   private started = performance.now();
+
   private lastProgressSave = 0;
 
   constructor(
@@ -125,6 +145,139 @@ export class WorkflowRun {
     );
   }
 
+  async run(script: Script): Promise<Report> {
+    const abort = () =>
+      this.cancel(errorText(this.request.signal.reason ?? "Cancelled"));
+    this.request.signal.addEventListener("abort", abort, { once: true });
+    let finalStatus: Report["status"] = "failed";
+    let closeControl: (() => Promise<void>) | undefined;
+    try {
+      this.request.signal.throwIfAborted();
+      closeControl = await startControl(this.store.directory, {
+        runId: this.store.report.runId,
+        cancel: () => this.cancel(),
+        skip: (id) => this.skip(id),
+      });
+      await this.request.onStarting?.(this);
+
+      this.restoreChildArchives();
+      await this.preflight(script, this.request.scriptPath);
+      this.controller.signal.throwIfAborted();
+
+      this.event({ type: "run-started", text: this.store.directory });
+      await this.request.onReady?.(this);
+      this.controller.signal.throwIfAborted();
+
+      this.store.report.result = await this.execute(
+        {
+          script,
+          path: this.request.scriptPath,
+          backend: this.request.config.backend,
+          child: false,
+          phase: script.meta.phases?.[0]?.title ?? "Workflow",
+        },
+        this.request.args,
+      );
+      finalStatus = "completed";
+    } catch (error) {
+      finalStatus = this.controller.signal.aborted ? "cancelled" : "failed";
+      this.store.report.error = errorText(error);
+    } finally {
+      this.stopped = true;
+      if (this.pending.size) {
+        this.controller.abort(
+          new Error("Workflow ended before awaiting all agents"),
+        );
+      }
+
+      await Promise.allSettled(this.pending);
+      if (this.failure) {
+        finalStatus = "failed";
+        this.store.report.error = errorText(this.failure);
+      }
+
+      if (this.store.report.activeAgents.length) {
+        this.store.report.logs.push(
+          `${this.store.report.activeAgents.length} invocations have no terminal journal record; inspect invocations.jsonl`,
+        );
+        this.store.report.activeAgents = [];
+      }
+
+      this.store.report.status = finalStatus;
+      this.store.report.durationMs = performance.now() - this.started;
+      try {
+        this.store.save();
+      } finally {
+        try {
+          await closeControl?.();
+        } finally {
+          this.request.signal.removeEventListener("abort", abort);
+        }
+      }
+    }
+
+    return this.store.report;
+  }
+
+  skip(id: number) {
+    const controller = this.controllers.get(id);
+    if (!controller) {
+      throw new Error(`Agent ${id} is not active or queued`);
+    }
+
+    controller.abort(new Error("Skipped by user"));
+  }
+
+  cancel(reason = "Cancelled by user") {
+    this.stopped = true;
+    this.controller.abort(new Error(reason));
+  }
+
+  async preflight(script: Script, path: string, depth = 0) {
+    this.controller.signal.throwIfAborted();
+    this.scripts.set(path, script);
+    if (depth) {
+      this.archiveChild(script, path);
+    }
+
+    const profileBackends = script.profiles.flatMap((name) => {
+      const profile = this.request.config.profiles[name];
+      if (!profile) {
+        throw new Error(`Unknown profile: ${name}`);
+      }
+
+      return profile.backend ? [profile.backend] : [];
+    });
+
+    for (const name of new Set([
+      this.request.config.backend,
+      ...script.backends,
+      ...profileBackends,
+    ])) {
+      const backend = backendName.parse(name);
+      const detected = await this.detect(backend);
+      this.controller.signal.throwIfAborted();
+      if (!detected.available) {
+        throw new Error(
+          `Backend ${backend} is unavailable: ${detected.notes.join("; ")}\nRun workflow info to inspect capabilities.`,
+        );
+      }
+    }
+
+    for (const ref of script.children) {
+      if (depth) {
+        throw new Error(
+          "Only one level of child workflow nesting is supported",
+        );
+      }
+
+      const childPath = await this.resolveChild(ref, path);
+      const child =
+        this.scripts.get(childPath) ?? (await this.readChild(childPath));
+      await this.preflight(child, childPath, depth + 1);
+    }
+  }
+
   private fail(error: unknown) {
     this.failure ??=
       error instanceof Error ? error : new Error(errorText(error));
@@ -148,15 +301,20 @@ export class WorkflowRun {
       if (event.type === "agent-started") {
         active.status = "running";
       }
+
       if (event.elapsedMs !== undefined) {
         active.elapsedMs = event.elapsedMs;
       }
+
       if (event.toolCalls !== undefined) {
         active.toolCalls = event.toolCalls;
       }
+
       if (event.text !== undefined) {
         active.activity = event.text;
       }
+
+      // Activity is frequent; persist lifecycle changes immediately and throttle previews.
       if (
         event.type !== "activity" ||
         performance.now() - this.lastProgressSave > 250
@@ -165,20 +323,8 @@ export class WorkflowRun {
         this.lastProgressSave = performance.now();
       }
     }
+
     this.request.onEvent({ ...event, runId: this.store.report.runId });
-  }
-
-  skip(id: number) {
-    const controller = this.controllers.get(id);
-    if (!controller) {
-      throw new Error(`Agent ${id} is not active or queued`);
-    }
-    controller.abort(new Error("Skipped by user"));
-  }
-
-  cancel(reason = "Cancelled by user") {
-    this.stopped = true;
-    this.controller.abort(new Error(reason));
   }
 
   private options(value: Json): AgentOptions {
@@ -188,13 +334,16 @@ export class WorkflowRun {
         "agentType uses a harness-specific registry; define and select a workflow profile instead",
       );
     }
+
     const profile = options.profile
       ? this.request.config.profiles[options.profile]
       : undefined;
     if (options.profile && !profile) {
       throw new Error(`Unknown profile: ${options.profile}`);
     }
+
     const { systemAppend: _system, ...profileOptions } = profile ?? {};
+
     return agentOptions.parse({
       ...this.request.config.defaults,
       ...profileOptions,
@@ -207,12 +356,15 @@ export class WorkflowRun {
     if (this.stopped) {
       throw new Error("Workflow no longer accepts agents");
     }
+
     if (typeof prompt !== "string") {
       throw new Error("agent prompt must be a string");
     }
+
     if (this.count >= 1000) {
       throw new Error("Lifetime agent limit (1000) reached");
     }
+
     const options = this.options(value);
     if (options.schema) {
       compileSchema(options.schema);
@@ -228,77 +380,21 @@ export class WorkflowRun {
       );
       this.detections.set(backend, pending);
     }
+
     return pending;
   }
 
-  async preflight(script: Script, path: string, depth = 0) {
-    this.controller.signal.throwIfAborted();
-    this.scripts.set(path, script);
-    if (depth) {
-      this.persist(() => {
-        if (this.archivedChildren.some((child) => child.path === path)) {
-          return;
-        }
-        const file = `${this.archivedChildren.length}.js`;
-        mkdirSync(join(this.store.directory, "children"), { recursive: true });
-        writeFileSync(
-          join(this.store.directory, "children", file),
-          script.source,
-          { mode: 0o600, flush: true },
-        );
-        this.archivedChildren.push({
-          path,
-          file,
-          sha256: createHash("sha256").update(script.source).digest("hex"),
-        });
-        atomicJson(
-          join(this.store.directory, "children", "manifest.json"),
-          this.archivedChildren,
-        );
-      });
-    }
-    const profileBackends = script.profiles.flatMap((name) => {
-      const profile = this.request.config.profiles[name];
-      if (!profile) {
-        throw new Error(`Unknown profile: ${name}`);
-      }
-      return profile.backend ? [profile.backend] : [];
-    });
-    for (const name of new Set([
-      this.request.config.backend,
-      ...script.backends,
-      ...profileBackends,
-    ])) {
-      const backend = backendName.parse(name);
-      const detected = await this.detect(backend);
-      this.controller.signal.throwIfAborted();
-      if (!detected.available) {
-        throw new Error(
-          `Backend ${backend} is unavailable: ${detected.notes.join("; ")}\nRun workflow info to inspect capabilities.`,
-        );
-      }
-    }
-    for (const ref of script.children) {
-      if (depth) {
-        throw new Error(
-          "Only one level of child workflow nesting is supported",
-        );
-      }
-      const childPath = await this.resolveChild(ref, path);
-      const child =
-        this.scripts.get(childPath) ?? (await this.readChild(childPath));
-      await this.preflight(child, childPath, depth + 1);
-    }
-  }
-
   private async resolveChild(ref: Json, parent: string): Promise<string> {
+    // Once a reference resolves, keep its path stable for the rest of this run.
     const key = canonical({ parent, ref });
     const existing = this.childResolutions.get(key);
     if (existing) {
       return existing;
     }
+
     const remember = (path: string) => {
       this.childResolutions.set(key, path);
+
       return path;
     };
     if (typeof ref !== "string") {
@@ -309,24 +405,29 @@ export class WorkflowRun {
         ),
       );
     }
+
     if (ref.includes("/") || ref.endsWith(".js") || isAbsolute(ref)) {
       return remember(resolve(dirname(parent), ref));
     }
+
     for (const directory of [".workflow/workflows", ".claude/workflows"]) {
       const path = resolve(this.request.cwd, directory, `${ref}.js`);
       try {
         await access(path);
+
         return remember(path);
       } catch {
         /* try next registry */
       }
     }
+
     for (const directory of [".workflow/workflows", ".claude/workflows"]) {
       const path = resolve(this.request.cwd, directory, `${ref}.js`);
       if (this.savedChildren.has(path)) {
         return remember(path);
       }
     }
+
     throw new Error(`Unknown workflow ${ref}`);
   }
 
@@ -334,15 +435,15 @@ export class WorkflowRun {
     try {
       return parseScript(await readScriptFile(path, this.controller.signal));
     } catch (error) {
-      if (
-        !(error instanceof Error && "code" in error && error.code === "ENOENT")
-      ) {
+      if (!isErrno(error, "ENOENT")) {
         throw error;
       }
+
       const saved = this.savedChildren.get(path);
       if (!saved) {
         throw error;
       }
+
       try {
         const source = await readScriptFile(saved.file, this.controller.signal);
         if (
@@ -352,10 +453,12 @@ export class WorkflowRun {
             `Saved child source failed integrity check: ${saved.file}`,
           );
         }
+
         this.event({
           type: "warning",
           text: `Child ${path} is missing; using saved source ${saved.file}`,
         });
+
         return parseScript(source);
       } catch (archiveError) {
         this.fail(archiveError);
@@ -381,6 +484,7 @@ export class WorkflowRun {
             this.fail(error);
             throw error;
           });
+
           return this.trackTask(task);
         },
         phase: (title) => {
@@ -401,7 +505,10 @@ export class WorkflowRun {
 
   private trackTask(task: Promise<Json>): Promise<Json> {
     this.pending.add(task);
+    // Observe the derived cleanup promise; callers still receive the original
+    // rejection, and agent infrastructure failures separately fail the root.
     void task.finally(() => this.pending.delete(task)).catch(() => {});
+
     return task;
   }
 
@@ -418,6 +525,7 @@ export class WorkflowRun {
       if (scope.child) {
         throw new Error("workflow() cannot be called from a child workflow");
       }
+
       const options = z
         .object({ backend: backendName.optional() })
         .strict()
@@ -428,6 +536,7 @@ export class WorkflowRun {
       if (!this.scripts.has(path)) {
         await this.preflight(script, path, 1);
       }
+
       this.controller.signal.throwIfAborted();
       const execution = this.execute(
         {
@@ -439,7 +548,9 @@ export class WorkflowRun {
         },
         args,
       );
+
       release();
+
       return await execution;
     } finally {
       release();
@@ -458,6 +569,9 @@ export class WorkflowRun {
     const phase = options.phase ?? scope.phase;
     const backend = options.backend ?? scope.backend;
     const effective = { ...options, backend };
+
+    // Replay identity includes the prompt and settings that can change its result.
+    // Keep this context in sync when adding execution-affecting configuration.
     const key = canonical(
       jsonValue.parse({
         prompt,
@@ -472,6 +586,7 @@ export class WorkflowRun {
         systemAppend: this.profileSystemAppend(options),
       }),
     );
+
     this.store.startAgent({
       id,
       prompt,
@@ -500,6 +615,7 @@ export class WorkflowRun {
         // An intentional per-agent skip is still a completed, cacheable null.
         () => !this.controller.signal.aborted,
       );
+
       const original = agentRecord.parse(outcome.value);
       const record: AgentRecord = {
         ...original,
@@ -509,6 +625,7 @@ export class WorkflowRun {
         phase,
         options: effective,
       };
+
       if (outcome.cached) {
         if (this.request.resume) {
           this.store.transcript(id, {
@@ -517,9 +634,11 @@ export class WorkflowRun {
             agentId: original.id,
           });
         }
+
         record.startedAt = new Date().toISOString();
         record.durationMs = 0;
       }
+
       this.store.agent(record);
       this.event({
         type: "agent-finished",
@@ -530,6 +649,7 @@ export class WorkflowRun {
         elapsedMs: record.durationMs,
         toolCalls: record.toolCalls,
       });
+
       return record.result;
     } finally {
       this.controllers.delete(id);
@@ -572,103 +692,61 @@ export class WorkflowRun {
         failRun: (error) => this.fail(error),
       },
     );
+
     return execution.run();
   }
 
-  async run(script: Script): Promise<Report> {
-    const abort = () =>
-      this.cancel(errorText(this.request.signal.reason ?? "Cancelled"));
-    this.request.signal.addEventListener("abort", abort, { once: true });
-    let finalStatus: Report["status"] = "failed";
-    let closeControl: (() => Promise<void>) | undefined;
-    try {
-      this.request.signal.throwIfAborted();
-      closeControl = await startControl(this.store.directory, {
-        runId: this.store.report.runId,
-        cancel: () => this.cancel(),
-        skip: (id) => this.skip(id),
-      });
-      await this.request.onStarting?.(this);
-      if (this.request.resume) {
-        const directory = join(
-          runPath(this.request.root, this.request.resume),
-          "children",
-        );
-        try {
-          for (const child of childArchive.parse(
-            JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8")),
-          )) {
-            this.savedChildren.set(child.path, {
-              file: join(directory, child.file),
-              sha256: child.sha256,
-            });
-          }
-        } catch (error) {
-          if (
-            !(
-              error instanceof Error &&
-              "code" in error &&
-              error.code === "ENOENT"
-            )
-          ) {
-            throw error;
-          }
-        }
+  private archiveChild(script: Script, path: string) {
+    this.persist(() => {
+      if (this.archivedChildren.some((child) => child.path === path)) {
+        return;
       }
-      await this.preflight(script, this.request.scriptPath);
-      this.controller.signal.throwIfAborted();
-      this.event({ type: "run-started", text: this.store.directory });
-      await this.request.onReady?.(this);
-      this.controller.signal.throwIfAborted();
-      this.store.report.result = await this.execute(
-        {
-          script,
-          path: this.request.scriptPath,
-          backend: this.request.config.backend,
-          child: false,
-          phase: script.meta.phases?.[0]?.title ?? "Workflow",
-        },
-        this.request.args,
+
+      const file = `${this.archivedChildren.length}.js`;
+      mkdirSync(join(this.store.directory, "children"), { recursive: true });
+      writeFileSync(
+        join(this.store.directory, "children", file),
+        script.source,
+        { mode: 0o600, flush: true },
       );
-      finalStatus = "completed";
-    } catch (error) {
-      finalStatus = this.controller.signal.aborted ? "cancelled" : "failed";
-      this.store.report.error = errorText(error);
-    } finally {
-      this.stopped = true;
-      if (this.pending.size) {
-        this.controller.abort(
-          new Error("Workflow ended before awaiting all agents"),
-        );
-      }
-      await Promise.allSettled(this.pending);
-      if (this.failure) {
-        finalStatus = "failed";
-        this.store.report.error = errorText(this.failure);
-      }
-      if (this.store.report.activeAgents.length) {
-        this.store.report.logs.push(
-          `${this.store.report.activeAgents.length} invocations have no terminal journal record; inspect invocations.jsonl`,
-        );
-        this.store.report.activeAgents = [];
-      }
-      this.store.report.status = finalStatus;
-      this.store.report.durationMs = performance.now() - this.started;
+      this.archivedChildren.push({
+        path,
+        file,
+        sha256: createHash("sha256").update(script.source).digest("hex"),
+      });
+      atomicJson(
+        join(this.store.directory, "children", "manifest.json"),
+        this.archivedChildren,
+      );
+    });
+  }
+
+  private restoreChildArchives() {
+    if (this.request.resume) {
+      const directory = join(
+        runPath(this.request.root, this.request.resume),
+        "children",
+      );
       try {
-        this.store.save();
-      } finally {
-        try {
-          await closeControl?.();
-        } finally {
-          this.request.signal.removeEventListener("abort", abort);
+        for (const child of childArchive.parse(
+          JSON.parse(readFileSync(join(directory, "manifest.json"), "utf8")),
+        )) {
+          this.savedChildren.set(child.path, {
+            file: join(directory, child.file),
+            sha256: child.sha256,
+          });
+        }
+      } catch (error) {
+        if (!isErrno(error, "ENOENT")) {
+          throw error;
         }
       }
     }
-    return this.store.report;
   }
 }
 
 export async function runWorkflow(request: RunRequest): Promise<Report> {
   const script = parseScript(request.source);
+
   return new WorkflowRun(request, script).run(script);
 }

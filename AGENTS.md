@@ -35,3 +35,12 @@ Workflow behavior, query `claude` CLI with the `claude-opus-5` model.
   closed.
 - Cancellation closes admission before terminating owned processes and
   preserving changed worktrees.
+
+## Source layout
+
+Separate class members and top-level declarations with a blank line. Put public
+lifecycle methods before private implementation helpers. Within methods, use
+logical paragraphs for preparation, validation, execution and cleanup; keep
+related assignments together. Formatters preserve these boundaries rather than
+inventing them. Comments should explain ownership, ordering, policy or a
+non-obvious constraint, not restate the adjacent code.

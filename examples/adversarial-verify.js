@@ -9,16 +9,20 @@ if (!args || typeof args.task !== "string" || !args.task.trim()) {
     "Pass --args with a nonempty task string; include absolute repository paths.",
   );
 }
+
 const readOnly = { toolPolicy: "read-only" };
+
 const voteSchema = {
   type: "object",
   properties: { valid: { type: "boolean" }, reason: { type: "string" } },
   required: ["valid", "reason"],
   additionalProperties: false,
 };
+
 if (!Array.isArray(args.findings)) {
   throw Error("args.findings must be an array of claims.");
 }
+
 return pipeline(args.findings, async (finding, _, index) => {
   const votes = await parallel(
     [1, 2, 3].map(
@@ -35,6 +39,7 @@ return pipeline(args.findings, async (finding, _, index) => {
         ),
     ),
   );
+
   const failed = votes.filter((vote) => vote === null).length;
   const positive = votes.filter((vote) => vote !== null && vote.valid).length;
   if (failed) {
@@ -42,8 +47,10 @@ return pipeline(args.findings, async (finding, _, index) => {
       `Finding ${index + 1}: ${failed} refuters failed; they are not positive votes`,
     );
   }
+
   if (positive < 2) {
     log(`Finding ${index + 1}: rejected with ${positive}/3 positive votes`);
   }
+
   return { finding, accepted: positive >= 2, positive, votes };
 });

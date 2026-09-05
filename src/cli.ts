@@ -19,12 +19,35 @@ import { readScriptFile } from "./runtime/script.js";
 import { runPath } from "./runtime/store.js";
 import type { Report } from "./runtime/store.js";
 import { readTranscript } from "./runtime/transcript.js";
+import { isErrno } from "./types.js";
 import { backendName, errorText, jsonValue } from "./types.js";
 import { waitForRun } from "./wait.js";
+
 interface InspectOptions {
   runsDir?: string;
   cwd?: string;
   json?: boolean;
+}
+
+interface RunOptions {
+  model?: string;
+  args?: string;
+  argsFile?: string;
+  backend?: string;
+  concurrency?: string;
+  resume?: string;
+  json?: boolean;
+  runsDir?: string;
+  cwd?: string;
+  background?: boolean;
+}
+
+interface ShowOptions {
+  json?: boolean;
+  agent?: string;
+  transcript?: boolean;
+  runsDir?: string;
+  cwd?: string;
 }
 
 function storageRoot(options: InspectOptions): string {
@@ -42,8 +65,79 @@ function launchIdentity(report: Report) {
   };
 }
 
+async function configureRun(cwd: string, options: RunOptions) {
+  const config = await loadConfig(cwd);
+  if (options.backend) {
+    config.backend = backendName.parse(options.backend);
+  }
+
+  if (options.model !== undefined) {
+    config.defaults.model = z.string().trim().min(1).parse(options.model);
+  }
+
+  if (options.concurrency) {
+    const value = Number(options.concurrency);
+    if (!Number.isInteger(value) || value < 1 || value > 16) {
+      throw new Error("Concurrency must be between 1 and 16");
+    }
+
+    config.concurrency = value;
+  }
+
+  return config;
+}
+
+async function loadRunArgs(root: string, options: RunOptions) {
+  let args = jsonValue.parse(
+    JSON.parse(
+      options.argsFile
+        ? await readFile(resolve(options.argsFile), "utf8")
+        : (options.args ?? "null"),
+    ),
+  );
+
+  if (options.resume) {
+    const previous = await inspectReport(root, options.resume);
+    if (previous.status === "running") {
+      throw new Error(
+        "Stop the previous run before resuming" +
+          (previous.observation ? `: ${previous.observation}` : ""),
+      );
+    }
+
+    if (options.args === undefined && !options.argsFile) {
+      args = jsonValue.parse(
+        JSON.parse(
+          await readFile(
+            join(runPath(root, options.resume), "args.json"),
+            "utf8",
+          ),
+        ),
+      );
+    }
+  }
+
+  return args;
+}
+
+async function readWorkflowSource(path: string) {
+  let source = "";
+  if (path === "-") {
+    process.stdin.setEncoding("utf8");
+    for await (const chunk of process.stdin) {
+      source += String(chunk);
+    }
+  } else {
+    source = await readScriptFile(resolve(path));
+  }
+
+  return source;
+}
+
 const outputClosed = new AbortController();
+
 process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  // A closed consumer cancels owned work without turning a normal pipe into failure.
   if (error.code === "EPIPE") {
     outputClosed.abort(new Error("Output pipe closed"));
     process.exitCode = 0;
@@ -51,13 +145,16 @@ process.stdout.on("error", (error: NodeJS.ErrnoException) => {
     throw error;
   }
 });
+
 const program = new Command();
+
 program
   .name("workflow")
   .description(
     "Deterministic multi-agent workflows across coding agent harnesses",
   )
   .version("0.1.0");
+
 program
   .command("info")
   .description(
@@ -71,18 +168,7 @@ program
       : formatInstallation(info);
     process.stdout.write(output);
   });
-interface RunOptions {
-  model?: string;
-  args?: string;
-  argsFile?: string;
-  backend?: string;
-  concurrency?: string;
-  resume?: string;
-  json?: boolean;
-  runsDir?: string;
-  cwd?: string;
-  background?: boolean;
-}
+
 program
   .command("run")
   .description("Run a JavaScript workflow from a file, or - for stdin")
@@ -101,60 +187,17 @@ program
     if (options.args !== undefined && options.argsFile !== undefined) {
       throw new Error("Use only one of --args and --args-file");
     }
+
     const cwd = resolve(options.cwd ?? process.cwd());
     const root = storageRoot(options);
-    const config = await loadConfig(cwd);
-    if (options.backend) {
-      config.backend = backendName.parse(options.backend);
-    }
-    if (options.model !== undefined) {
-      config.defaults.model = z.string().trim().min(1).parse(options.model);
-    }
-    if (options.concurrency) {
-      const value = Number(options.concurrency);
-      if (!Number.isInteger(value) || value < 1 || value > 16) {
-        throw new Error("Concurrency must be between 1 and 16");
-      }
-      config.concurrency = value;
-    }
-    let args = jsonValue.parse(
-      JSON.parse(
-        options.argsFile
-          ? await readFile(resolve(options.argsFile), "utf8")
-          : (options.args ?? "null"),
-      ),
-    );
-    if (options.resume) {
-      const previous = await inspectReport(root, options.resume);
-      if (previous.status === "running") {
-        throw new Error(
-          "Stop the previous run before resuming" +
-            (previous.observation ? `: ${previous.observation}` : ""),
-        );
-      }
-      if (options.args === undefined && !options.argsFile) {
-        args = jsonValue.parse(
-          JSON.parse(
-            await readFile(
-              join(runPath(root, options.resume), "args.json"),
-              "utf8",
-            ),
-          ),
-        );
-      }
-    }
-    let source = "";
-    if (path === "-") {
-      process.stdin.setEncoding("utf8");
-      for await (const chunk of process.stdin) {
-        source += String(chunk);
-      }
-    } else {
-      source = await readScriptFile(resolve(path));
-    }
+    const config = await configureRun(cwd, options);
+    const args = await loadRunArgs(root, options);
+    const source = await readWorkflowSource(path);
+
     if (await firstRunNotice(root)) {
       process.stderr.write(notice + "\n");
     }
+
     if (options.background) {
       const reply = await launchBackground(fileURLToPath(import.meta.url), {
         source,
@@ -165,6 +208,7 @@ program
         config,
         resume: options.resume,
       });
+
       process.stdout.write(
         options.json
           ? JSON.stringify(reply) + "\n"
@@ -173,8 +217,10 @@ program
       if (reply.warning && !options.json) {
         process.stderr.write(`${reply.warning}: ${reply.logsDirectory}\n`);
       }
+
       return;
     }
+
     const progress = new Progress(!!options.json);
     const controller = new AbortController();
     const cancel = () => controller.abort(new Error("Cancelled by signal"));
@@ -194,6 +240,7 @@ program
         signal: AbortSignal.any([controller.signal, outputClosed.signal]),
         onEvent: (event) => progress.event(event),
       });
+
       progress.close();
       printReport(report, !!options.json);
       if (report.status !== "completed" && !outputClosed.signal.aborted) {
@@ -205,13 +252,7 @@ program
       process.removeListener("SIGTERM", cancel);
     }
   });
-interface ShowOptions {
-  json?: boolean;
-  agent?: string;
-  transcript?: boolean;
-  runsDir?: string;
-  cwd?: string;
-}
+
 program
   .command("show")
   .description("Inspect a run or an individual agent")
@@ -227,24 +268,26 @@ program
     if (options.transcript && !options.agent) {
       throw new Error("--transcript requires --agent");
     }
+
     if (!options.agent) {
       printReport(report, !!options.json, true);
+
       return;
     }
+
     const agent =
       report.agents.find((agent) => agent.id === Number(options.agent)) ??
       report.activeAgents.find((agent) => agent.id === Number(options.agent));
     if (!agent) {
       throw new Error(`Agent ${options.agent} does not exist in this run`);
     }
+
     if (options.transcript) {
       try {
         process.stdout.write(await readTranscript(root, id, agent.id));
       } catch (error) {
         if (
-          error instanceof Error &&
-          "code" in error &&
-          error.code === "ENOENT" &&
+          isErrno(error, "ENOENT") &&
           (agent.status === "queued" || agent.status === "running")
         ) {
           process.stdout.write(
@@ -258,6 +301,7 @@ program
       process.stdout.write(JSON.stringify(agent, null, 2) + "\n");
     }
   });
+
 program
   .command("journal")
   .description("Print the raw agent result journal")
@@ -282,9 +326,11 @@ program
     if (before.status === "running") {
       await controlRun(root, id, { action: "stop" });
     }
+
     const report = await waitForRun(root, id, new AbortController().signal);
     printReport(report, !!options.json);
   });
+
 program
   .command("skip")
   .description("Skip one queued or running agent")
@@ -298,6 +344,7 @@ program
     if (!Number.isInteger(index) || index < 1) {
       throw new Error("Agent ID must be a positive integer");
     }
+
     await controlRun(storageRoot(options), id, { action: "skip", id: index });
     process.stdout.write(
       options.json
@@ -306,6 +353,7 @@ program
         : `Skip requested for agent ${index} in ${id}.\n`,
     );
   });
+
 program
   .command("wait")
   .description("Wait for a background run and print its result")
@@ -329,6 +377,7 @@ program
         AbortSignal.any([controller.signal, outputClosed.signal]),
         (report) => progress.observe(report),
       );
+
       progress.close();
       printReport(report, !!options.json);
       if (report.status !== "completed" && !outputClosed.signal.aborted) {
@@ -340,6 +389,7 @@ program
       process.removeListener("SIGTERM", interrupt);
     }
   });
+
 program
   .command("__worker", { hidden: true })
   .argument("<launch-directory>")
@@ -347,6 +397,7 @@ program
     if (!process.send) {
       throw new Error("Internal worker requires a background launcher");
     }
+
     const controller = new AbortController();
     const cancelStartup = (message: unknown) => {
       if (
@@ -358,6 +409,7 @@ program
         controller.abort(new Error("Background startup cancelled by launcher"));
       }
     };
+
     process.on("message", cancelStartup);
     const launch = await readLaunch(directory);
     const cancel = () => controller.abort(new Error("Cancelled by signal"));
@@ -384,6 +436,7 @@ program
           acknowledged = true;
         },
       });
+
       if (!acknowledged) {
         await notifyLauncher({
           type: "failed",
@@ -391,6 +444,7 @@ program
           error: report.error ?? "Workflow launch failed",
         });
       }
+
       printReport(report, true);
       if (report.status !== "completed" && !outputClosed.signal.aborted) {
         process.exitCode = 1;
@@ -405,6 +459,7 @@ program
       }
     }
   });
+
 program
   .command("skill")
   .description("Print or install the bundled workflow authoring skill")
@@ -417,6 +472,7 @@ program
     if (!!options.print === !!options.install) {
       throw new Error("Choose --print or --install <directory>");
     }
+
     const source = fileURLToPath(
       new URL("../skills/workflow/SKILL.md", import.meta.url),
     );
@@ -430,10 +486,12 @@ program
       );
     }
   });
+
 await program.parseAsync().catch((error) => {
   if (outputClosed.signal.aborted) {
     return;
   }
+
   process.stderr.write(`workflow: ${errorText(error)}\n`);
   process.exitCode = 1;
 });
