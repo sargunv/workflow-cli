@@ -43,7 +43,8 @@ export async function findBinary(name: string): Promise<string | undefined> {
 export interface ProcessOptions {
   cwd: string;
   signal: AbortSignal;
-  timeoutMs?: number;
+  // A null timeout sets no deadline.
+  timeoutMs: number | null;
   onLine?: (line: string, channel: "stdout" | "stderr") => void;
   env?: NodeJS.ProcessEnv;
 }
@@ -88,7 +89,7 @@ export class ManagedProcess {
       detached: true,
       env: { ...process.env, ...options.env },
     });
-    this.resetTimeout(options.timeoutMs ?? 900_000);
+    this.resetTimeout(options.timeoutMs);
     const abort = () =>
       this.stop(errorText(options.signal.reason ?? "Cancelled"));
     options.signal.addEventListener("abort", abort, { once: true });
@@ -106,12 +107,16 @@ export class ManagedProcess {
     this.child.stdin?.end(value);
   }
 
-  resetTimeout(timeoutMs: number) {
+  resetTimeout(timeoutMs: number | null) {
     if (this.stopped) {
       throw new Error("Backend process already stopped");
     }
 
     clearTimeout(this.deadline);
+    if (timeoutMs === null) {
+      return;
+    }
+
     this.deadline = setTimeout(
       () => this.stop(`Backend timed out after ${timeoutMs}ms`),
       timeoutMs,

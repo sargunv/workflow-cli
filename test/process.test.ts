@@ -55,7 +55,7 @@ void test("owner death kills the backend without cooperative cleanup", async () 
   const source = `import {ManagedProcess} from ${JSON.stringify(module)};
     const child = new ManagedProcess(process.execPath,
       ['-e','console.log(process.pid);setInterval(()=>{},1000)'],
-      {cwd:process.cwd(),signal:new AbortController().signal,onLine:console.log});
+      {cwd:process.cwd(),signal:new AbortController().signal,timeoutMs:null,onLine:console.log});
     child.end();`;
   const owner = spawn(
     process.execPath,
@@ -86,7 +86,11 @@ void test("owner death kills the backend without cooperative cleanup", async () 
 });
 
 void test("supervisor preserves backend exit codes and spawn errors", async () => {
-  const options = { cwd: tmpdir(), signal: new AbortController().signal };
+  const options = {
+    cwd: tmpdir(),
+    signal: new AbortController().signal,
+    timeoutMs: null,
+  };
   const exited = new ManagedProcess(
     process.execPath,
     ["-e", "process.exit(7)"],
@@ -118,6 +122,7 @@ void test("graceful stop retains supervision of TERM-ignoring descendants", asyn
     {
       cwd: tmpdir(),
       signal: new AbortController().signal,
+      timeoutMs: null,
       onLine(line) {
         pid = Number(line);
         ready();

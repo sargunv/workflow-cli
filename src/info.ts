@@ -92,7 +92,7 @@ export function formatInstallation(info: InstallationInfo): string {
     "  budget           disabled (total: null)",
     `  sandbox          ${sandbox.memoryBytes} bytes, ${sandbox.instructions} interrupt checks, 512 KiB stack`,
     `  schema strategy  ${runtime.schemaStrategy}, ${runtime.schemaRetries} correction attempts`,
-    `  agent timeout    ${transport.agentTimeoutMs}ms per attempt`,
+    `  agent timeout    ${transport.agentTimeoutMs === null ? "none" : `${transport.agentTimeoutMs}ms per attempt`}`,
     `  discovery timeout ${transport.discoveryTimeoutMs}ms`,
     `  launch timeout   ${transport.launchTimeoutMs}ms`,
     "",

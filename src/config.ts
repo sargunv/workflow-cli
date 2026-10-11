@@ -9,7 +9,13 @@ import { agentOptions, backendName } from "./types.js";
 
 export const transportSchema = z
   .object({
-    agentTimeoutMs: z.number().int().min(50).max(86_400_000).default(900_000),
+    agentTimeoutMs: z
+      .number()
+      .int()
+      .min(50)
+      .max(86_400_000)
+      .nullable()
+      .default(null),
     discoveryTimeoutMs: z.number().int().min(50).max(300_000).default(20_000),
     launchTimeoutMs: z.number().int().min(50).max(3_600_000).default(120_000),
   })

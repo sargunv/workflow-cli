@@ -260,9 +260,10 @@ has one configuration surface:
   QuickJS interrupt checks, roughly one check per 1024 bytecode operations).
   Stack size is 512 KiB. Limits apply per script VM, including each child. There
   is no option that grants scripts filesystem or network access.
-- `transport`: `agentTimeoutMs` (default 900,000 per attempt),
-  `discoveryTimeoutMs` (20,000 per discovery request), and `launchTimeoutMs`
-  (120,000 for background readiness). Raise these explicitly for long work.
+- `transport`: `agentTimeoutMs` (no deadline by default; a number sets one per
+  attempt), `discoveryTimeoutMs` (20,000 per discovery request), and
+  `launchTimeoutMs` (120,000 for background readiness). Stop a stuck agent with
+  `skip` or the run with `stop`.
 - `schemaStrategy`: `auto` chooses native when its semantics match the caller's
   schema; `prompted` forces prompted output with validation. Automatic fallback
   from a native-capable backend is logged. `schemaRetries` bounds corrections.

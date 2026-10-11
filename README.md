@@ -105,7 +105,7 @@ defaults.
   "schemaStrategy": "auto",
   "sandbox": { "memoryBytes": 67108864, "instructions": 100000 },
   "transport": {
-    "agentTimeoutMs": 900000,
+    "agentTimeoutMs": 3600000,
     "discoveryTimeoutMs": 20000,
     "launchTimeoutMs": 120000
   }

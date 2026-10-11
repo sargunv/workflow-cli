@@ -21,7 +21,7 @@ type AcpBackend = "opencode" | "kimi" | "qwen";
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
-  timer: NodeJS.Timeout;
+  timer: NodeJS.Timeout | undefined;
 }
 
 // Native ACP transports observed in BACKENDS.md: OpenCode 1.18.28, Kimi
@@ -69,7 +69,7 @@ export class AcpConnection {
   request(
     method: string,
     params: unknown,
-    timeoutMs = this.transport.discoveryTimeoutMs,
+    timeoutMs: number | null = this.transport.discoveryTimeoutMs,
   ): Promise<unknown> {
     if (this.ended) {
       return Promise.reject(new Error("ACP process already exited"));
@@ -78,11 +78,14 @@ export class AcpConnection {
     const id = ++this.sequence;
 
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`ACP ${method} timed out`));
-        this.process.stop("ACP request timeout");
-      }, timeoutMs);
+      const timer =
+        timeoutMs === null
+          ? undefined
+          : setTimeout(() => {
+              this.pending.delete(id);
+              reject(new Error(`ACP ${method} timed out`));
+              this.process.stop("ACP request timeout");
+            }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       this.send({ jsonrpc: "2.0", id, method, params });
     });
