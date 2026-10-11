@@ -66,9 +66,14 @@ void test("recorded native ACP streams retain only each turn's final answer and 
       backend,
     );
     if (backend === "opencode") {
+      // OpenCode reports cache reads beside inputTokens; totalTokens is their
+      // sum with output.
       assert.deepEqual(
-        turns.map((turn) => turn.usage?.output),
-        [9, 10],
+        turns.map((turn) => turn.usage),
+        [
+          { input: 6977, cachedInput: 6656, output: 9 },
+          { input: 7015, cachedInput: 6656, output: 10 },
+        ],
       );
     } else {
       assert.ok(

@@ -59,7 +59,9 @@ export function prepareReport(report: Report) {
   };
 
   let input = 0;
-  let cachedInput = 0;
+  // Known only when every agent that reported usage reported its cache share.
+  let cachedInput: number | undefined;
+  let cacheUnknown = false;
   let output = 0;
   let tools = 0;
   let unreported = 0;
@@ -73,7 +75,11 @@ export function prepareReport(report: Report) {
       tools += agent.toolCalls;
       if (agent.usage) {
         input += agent.usage.input;
-        cachedInput += agent.usage.cachedInput ?? 0;
+        if (agent.usage.cachedInput === undefined) {
+          cacheUnknown = true;
+        } else {
+          cachedInput = (cachedInput ?? 0) + agent.usage.cachedInput;
+        }
         output += agent.usage.output;
       } else {
         unreported++;
@@ -96,7 +102,12 @@ export function prepareReport(report: Report) {
     name: report.meta.name,
     description: report.meta.description,
     counts,
-    tokens: { input, cachedInput, output, unreportedAgents: unreported },
+    tokens: {
+      input,
+      cachedInput: cacheUnknown ? undefined : cachedInput,
+      output,
+      unreportedAgents: unreported,
+    },
     toolCalls: tools,
     cachedToolCalls: cachedTools,
     durationMs: Math.round(durationMs),
@@ -160,7 +171,9 @@ export function formatReport(
     statuses.push(`${counts.running} running`, `${counts.queued} queued`);
   }
 
-  let usage = `${tokens.input} input tokens (${tokens.cachedInput} cached) · ${tokens.output} output tokens`;
+  const cached =
+    tokens.cachedInput === undefined ? "" : ` (${tokens.cachedInput} cached)`;
+  let usage = `${tokens.input} input tokens${cached} · ${tokens.output} output tokens`;
   if (tokens.unreportedAgents) {
     usage += ` (${tokens.unreportedAgents} agents without usage)`;
   }
