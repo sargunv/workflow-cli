@@ -175,12 +175,15 @@ The vision asks for one override surface per runtime layer. `sandbox` adjusts
 memory and instruction limits without adding host APIs. `transport` adjusts
 agent, discovery and background startup deadlines. `schemaStrategy` can force
 prompted output. `sharedPaths` supplies opted-in local state to worktrees.
-`info` and the skill document these surfaces. Unbounded execution was rejected
-because it makes runaway JavaScript and approval hangs indistinguishable from
-useful work. Defaults are 64 MiB per VM, 512 KiB stack, 100,000 QuickJS
-interrupt checks, 15 minutes per agent attempt, 20 seconds per discovery
-request, and two minutes for background readiness. Raise explicit limits rather
-than relying on hidden fallback behavior.
+`info` and the skill document these surfaces. Unbounded script execution was
+rejected because it makes runaway JavaScript indistinguishable from useful work.
+Defaults are 64 MiB per VM, 512 KiB stack, 100,000 QuickJS interrupt checks, 20
+seconds per discovery request, and two minutes for background readiness. Agent
+attempts have no default deadline, matching Claude Code's workflow tool: builds,
+emulators and long test suites outlast any fixed limit, and a killed agent loses
+its work. Agents run without approval prompts, so a hang is a stuck tool, which
+`skip` and `stop` end; `agentTimeoutMs` sets a deadline when one is wanted.
+Raise explicit limits rather than relying on hidden fallback behavior.
 
 Backend discovery is cancellable. Files passed as scripts must be regular files;
 streams belong on stdin. Startup cancellation is rechecked before readiness, and

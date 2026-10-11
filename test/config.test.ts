@@ -14,6 +14,9 @@ void test("backend selection has a single run-default location", () => {
     "codex",
   );
 });
+void test("agents have no deadline unless one is configured", () => {
+  assert.equal(configSchema.parse({}).transport.agentTimeoutMs, null);
+});
 void test("transport and sandbox overrides are bounded and explicit", () => {
   const config = configSchema.parse({
     transport: { agentTimeoutMs: 60_000 },
