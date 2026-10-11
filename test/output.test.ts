@@ -8,6 +8,7 @@ import { agentTable, prepareReport, formatReport } from "../src/output.js";
 import { Progress } from "../src/progress.js";
 import type { ProgressSurface } from "../src/progress.js";
 import { RunStore } from "../src/runtime/store.js";
+import type { Usage } from "../src/types.js";
 function surface(tty: boolean) {
   let now = 0;
   const output: string[] = [];
@@ -117,6 +118,62 @@ void test("summary tables omit prompts and results; large Unicode results spill 
     formatReport(store.report, prepareReport(store.report), true),
     /PRIVATE/,
   );
+});
+
+async function usageSummary(usages: Usage[]) {
+  const root = await mkdtemp(join(tmpdir(), "workflow-output-usage-"));
+  const store = new RunStore(
+    root,
+    "source",
+    null,
+    { name: "usage", description: "usage" },
+    root,
+    "script.js",
+  );
+  store.report.status = "completed";
+  for (const [index, usage] of usages.entries()) {
+    const id = index + 1;
+    store.agent({
+      id,
+      kind: "agent",
+      prompt: "task",
+      options: {},
+      key: `usage-${id}`,
+      phase: "Run",
+      status: "done",
+      result: null,
+      cached: false,
+      startedAt: new Date().toISOString(),
+      durationMs: 5,
+      toolCalls: 0,
+      usage,
+    });
+  }
+  const summary = prepareReport(store.report);
+  return { summary, text: formatReport(store.report, summary, false) };
+}
+
+void test("the summary totals live agents' input, cached input and output tokens", async () => {
+  const { summary, text } = await usageSummary([
+    { input: 100, cachedInput: 80, output: 5 },
+    { input: 20, cachedInput: 0, output: 3 },
+  ]);
+  assert.deepEqual(summary.tokens, {
+    input: 120,
+    cachedInput: 80,
+    output: 8,
+    unreportedAgents: 0,
+  });
+  assert.match(text, /120 input tokens \(80 cached\) · 8 output tokens/);
+});
+
+void test("the summary omits the cached share when an agent did not report it", async () => {
+  const { summary, text } = await usageSummary([
+    { input: 100, cachedInput: 80, output: 5 },
+    { input: 20, output: 3 },
+  ]);
+  assert.equal(summary.tokens.cachedInput, undefined);
+  assert.match(text, /120 input tokens · 8 output tokens/);
 });
 
 void test("human result text neutralizes terminal sequences while preserving line breaks and JSON data", async () => {

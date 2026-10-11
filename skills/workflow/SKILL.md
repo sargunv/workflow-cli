@@ -243,7 +243,8 @@ re-running mutating work.
 Read the journal before diagnosing an empty result. Distinguish errored,
 skipped, empty text, and a valid empty structured object. The default terminal
 shows only phase/agent progress and narrator lines; full backend streams stay in
-per-agent transcripts. Completion prints counts, tokens, tool calls, duration,
+per-agent transcripts. Completion prints counts, input tokens with the share
+served from the backend's prompt cache, output tokens, tool calls, duration,
 logs, and the script result. Cached calls spend no new tokens or tool calls;
 their historical tool counts are reported separately. Missing backend usage is
 explicitly marked. Results over 16 KiB spill to `result.json`; stdout includes

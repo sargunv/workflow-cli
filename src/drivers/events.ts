@@ -50,9 +50,28 @@ export function usage(value: unknown): Usage | undefined {
     return undefined;
   }
 
+  // Codex counts cache reads inside input_tokens. Claude, Cursor and OpenCode
+  // report cache reads and writes beside their input count instead.
+  const separate = [
+    "cache_read_input_tokens",
+    "cache_creation_input_tokens",
+    "cacheReadTokens",
+    "cacheWriteTokens",
+    "cachedReadTokens",
+    "cachedWriteTokens",
+  ].reduce((sum, key) => sum + number(tokens[key]), 0);
+  const cached =
+    tokens.cached_input_tokens ??
+    tokens.cache_read_input_tokens ??
+    tokens.cacheReadTokens ??
+    tokens.cachedReadTokens;
+
   return {
-    input,
+    input: input + separate,
     output,
+    ...(typeof cached === "number" && Number.isFinite(cached) && cached >= 0
+      ? { cachedInput: cached }
+      : {}),
   };
 }
 
@@ -196,12 +215,6 @@ export class CliEventParser {
     }
 
     this.usage = usage(event.usage);
-    if (this.backend === "claude" && this.usage) {
-      const tokens = object(event.usage);
-      this.usage.input +=
-        number(tokens.cache_creation_input_tokens) +
-        number(tokens.cache_read_input_tokens);
-    }
 
     if (this.usage && typeof event.total_cost_usd === "number") {
       this.usage.cost = event.total_cost_usd;

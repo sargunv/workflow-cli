@@ -66,9 +66,14 @@ void test("recorded native ACP streams retain only each turn's final answer and 
       backend,
     );
     if (backend === "opencode") {
+      // OpenCode reports cache reads beside inputTokens; totalTokens is their
+      // sum with output.
       assert.deepEqual(
-        turns.map((turn) => turn.usage?.output),
-        [9, 10],
+        turns.map((turn) => turn.usage),
+        [
+          { input: 6977, cachedInput: 6656, output: 9 },
+          { input: 7015, cachedInput: 6656, output: 10 },
+        ],
       );
     } else {
       assert.ok(
@@ -96,6 +101,12 @@ void test("recorded Codex and Cursor streams report vendor final text and usage"
     assert.equal(result.exitInfo.error, undefined);
     assert.deepEqual(parseStructured(result.text), { code: 731 });
     assert.equal(result.usage?.output, backend === "codex" ? 311 : 286);
+    assert.deepEqual(
+      result.usage,
+      backend === "codex"
+        ? { input: 55046, cachedInput: 35328, output: 311 }
+        : { input: 31209, cachedInput: 19736, output: 286 },
+    );
   }
 });
 
@@ -184,7 +195,11 @@ void test("CLI usage is absent when counters are missing and Claude includes cac
     }),
     "stdout",
   );
-  assert.deepEqual(claude.finish(0).usage, { input: 310, output: 2 });
+  assert.deepEqual(claude.finish(0).usage, {
+    input: 310,
+    cachedInput: 200,
+    output: 2,
+  });
 });
 void test("Claude minimal capability requires explicit API-key authentication", async () => {
   const previous = process.env.ANTHROPIC_API_KEY;
