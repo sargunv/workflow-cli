@@ -59,6 +59,7 @@ export function prepareReport(report: Report) {
   };
 
   let input = 0;
+  let cachedInput = 0;
   let output = 0;
   let tools = 0;
   let unreported = 0;
@@ -72,6 +73,7 @@ export function prepareReport(report: Report) {
       tools += agent.toolCalls;
       if (agent.usage) {
         input += agent.usage.input;
+        cachedInput += agent.usage.cachedInput ?? 0;
         output += agent.usage.output;
       } else {
         unreported++;
@@ -94,7 +96,7 @@ export function prepareReport(report: Report) {
     name: report.meta.name,
     description: report.meta.description,
     counts,
-    tokens: { input, output, unreportedAgents: unreported },
+    tokens: { input, cachedInput, output, unreportedAgents: unreported },
     toolCalls: tools,
     cachedToolCalls: cachedTools,
     durationMs: Math.round(durationMs),
@@ -158,7 +160,7 @@ export function formatReport(
     statuses.push(`${counts.running} running`, `${counts.queued} queued`);
   }
 
-  let usage = `${tokens.output} reported output tokens`;
+  let usage = `${tokens.input} input tokens (${tokens.cachedInput} cached) · ${tokens.output} output tokens`;
   if (tokens.unreportedAgents) {
     usage += ` (${tokens.unreportedAgents} agents without usage)`;
   }

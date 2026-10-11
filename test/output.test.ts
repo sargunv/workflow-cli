@@ -119,6 +119,50 @@ void test("summary tables omit prompts and results; large Unicode results spill 
   );
 });
 
+void test("the summary totals live agents' input, cached input and output tokens", async () => {
+  const root = await mkdtemp(join(tmpdir(), "workflow-output-usage-"));
+  const store = new RunStore(
+    root,
+    "source",
+    null,
+    { name: "usage", description: "usage" },
+    root,
+    "script.js",
+  );
+  store.report.status = "completed";
+  for (const [id, usage] of [
+    [1, { input: 100, cachedInput: 80, output: 5 }],
+    [2, { input: 20, output: 3 }],
+  ] as const) {
+    store.agent({
+      id,
+      kind: "agent",
+      prompt: "task",
+      options: {},
+      key: `usage-${id}`,
+      phase: "Run",
+      status: "done",
+      result: null,
+      cached: false,
+      startedAt: new Date().toISOString(),
+      durationMs: 5,
+      toolCalls: 0,
+      usage,
+    });
+  }
+  const summary = prepareReport(store.report);
+  assert.deepEqual(summary.tokens, {
+    input: 120,
+    cachedInput: 80,
+    output: 8,
+    unreportedAgents: 0,
+  });
+  assert.match(
+    formatReport(store.report, summary, false),
+    /120 input tokens \(80 cached\) · 8 output tokens/,
+  );
+});
+
 void test("human result text neutralizes terminal sequences while preserving line breaks and JSON data", async () => {
   const root = await mkdtemp(join(tmpdir(), "workflow-output-controls-"));
   const store = new RunStore(

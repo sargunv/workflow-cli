@@ -50,9 +50,19 @@ export function usage(value: unknown): Usage | undefined {
     return undefined;
   }
 
+  // Codex counts cached tokens inside input_tokens. Claude and Cursor count
+  // them apart, and their result parser adds them to input.
+  const cached =
+    tokens.cached_input_tokens ??
+    tokens.cache_read_input_tokens ??
+    tokens.cacheReadTokens;
+
   return {
     input,
     output,
+    ...(typeof cached === "number" && Number.isFinite(cached) && cached >= 0
+      ? { cachedInput: cached }
+      : {}),
   };
 }
 
@@ -196,11 +206,13 @@ export class CliEventParser {
     }
 
     this.usage = usage(event.usage);
-    if (this.backend === "claude" && this.usage) {
+    if (this.usage) {
       const tokens = object(event.usage);
       this.usage.input +=
         number(tokens.cache_creation_input_tokens) +
-        number(tokens.cache_read_input_tokens);
+        number(tokens.cache_read_input_tokens) +
+        number(tokens.cacheWriteTokens) +
+        number(tokens.cacheReadTokens);
     }
 
     if (this.usage && typeof event.total_cost_usd === "number") {

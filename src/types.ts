@@ -83,6 +83,8 @@ export type Metadata = z.infer<typeof metadata>;
 
 export interface Usage {
   input: number;
+  // The part of input that the backend served from its prompt cache.
+  cachedInput?: number;
   output: number;
   cost?: number;
 }
@@ -177,6 +179,7 @@ export const agentRecord = z.object({
   usage: z
     .object({
       input: z.number(),
+      cachedInput: z.number().optional(),
       output: z.number(),
       cost: z.number().optional(),
     })

@@ -368,6 +368,13 @@ export class AgentExecution {
       input: (previous?.input ?? 0) + current.input,
       output: (previous?.output ?? 0) + current.output,
     };
+    if (
+      previous?.cachedInput !== undefined ||
+      current.cachedInput !== undefined
+    ) {
+      this.record.usage.cachedInput =
+        (previous?.cachedInput ?? 0) + (current.cachedInput ?? 0);
+    }
     if (previous?.cost !== undefined || current.cost !== undefined) {
       this.record.usage.cost = (previous?.cost ?? 0) + (current.cost ?? 0);
     }
