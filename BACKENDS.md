@@ -1,9 +1,5 @@
 # Backend CLI usage patterns
 
-The separate [usage-limit investigation](docs/USAGE-LIMITS.md), dated 2026-10-12,
-uses documentation and static source/bundle inspection without quota probes.
-The live observations below remain tied to their original versions and date.
-
 Findings from probing the agent CLIs installed on this machine on 2026-09-05. Every claim below was either read from `--help` output or observed by running the command. Versions:
 
 | Backend | Binary | Version |

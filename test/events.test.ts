@@ -11,6 +11,12 @@ import {
 import { parseStructured } from "../src/runtime/schema.js";
 import type { DriverEvent } from "../src/types.js";
 
+function feed(parser: CliEventParser, ...events: unknown[]) {
+  for (const event of events) {
+    parser.line(JSON.stringify(event), "stdout");
+  }
+}
+
 void test("source-derived quota refusals retain details despite stderr and emit once", async () => {
   for (const backend of ["claude", "codex"] as const) {
     const events: DriverEvent[] = [];
@@ -38,74 +44,65 @@ void test("source-derived quota refusals retain details despite stderr and emit 
       assert.equal(
         result.usageLimit.resetsAt,
         undefined,
-        "exec loses the timestamp's timezone; preserve the vendor text",
+        "preserve the vendor reset text without inventing a timezone",
       );
     }
   }
 });
 
 void test("Claude legacy refusals and errors arrays interrupt only failed terminal results", () => {
-  for (const failure of [
-    {
-      subtype: "success",
-      is_error: true,
-      result: "You've hit your limit · resets 10am (America/Los_Angeles)",
-    },
-    {
-      subtype: "error_during_execution",
-      is_error: true,
-      errors: ["You’ve hit your limit · resets Oct 13"],
-    },
-    {
-      subtype: "error_during_execution",
-      is_error: true,
-      api_error: "usage_limit_reached",
-      errors: ["Usage credits exhausted"],
-    },
-  ]) {
+  const cases: Array<[boolean, Record<string, unknown>]> = [
+    [
+      true,
+      { result: "You've hit your limit · resets 10am (America/Los_Angeles)" },
+    ],
+    [
+      true,
+      {
+        subtype: "error_during_execution",
+        errors: ["You’ve hit your limit · resets Oct 13"],
+      },
+    ],
+    [
+      true,
+      { api_error: "usage_limit_reached", errors: ["Usage credits exhausted"] },
+    ],
+    [
+      false,
+      { subtype: "error_max_budget_usd", errors: ["Exceeded max budget"] },
+    ],
+    [false, { subtype: "error_max_turns", result: "Maximum turns reached" }],
+    [false, { errors: ["429 rate_limit_error: requests per minute exceeded"] }],
+    [
+      false,
+      {
+        result: "You've hit your limit",
+        api_error: "model_requires_usage_credits",
+      },
+    ],
+    [
+      false,
+      {
+        is_error: false,
+        result: "You've hit your limit · example in a README",
+      },
+    ],
+  ];
+  for (const [expected, result] of cases) {
     const parser = new CliEventParser("claude", () => {});
-    parser.line(JSON.stringify({ type: "result", ...failure }), "stdout");
-    assert.ok(parser.finish(1).usageLimit);
-  }
-
-  for (const failure of [
-    {
-      subtype: "error_max_budget_usd",
-      is_error: true,
-      errors: ["Exceeded max budget"],
-    },
-    {
-      subtype: "error_max_turns",
-      is_error: true,
-      result: "Maximum turns reached",
-    },
-    {
-      subtype: "error_during_execution",
-      is_error: true,
-      errors: ["429 rate_limit_error: requests per minute exceeded"],
-    },
-    {
-      subtype: "error_during_execution",
-      is_error: true,
-      result: "You've hit your limit",
-      api_error: "model_requires_usage_credits",
-    },
-    {
-      subtype: "success",
-      is_error: false,
-      result: "You've hit your limit · example in a README",
-    },
-  ]) {
-    const parser = new CliEventParser("claude", () => {});
-    parser.line(
-      JSON.stringify({
+    feed(
+      parser,
+      {
         type: "rate_limit_event",
         rate_limit_info: { status: "rejected", resetsAt: 1791849600 },
-      }),
-      "stdout",
+      },
+      { type: "result", subtype: "success", is_error: true, ...result },
     );
-    parser.line(JSON.stringify({ type: "result", ...failure }), "stdout");
-    assert.equal(parser.finish(1).usageLimit, undefined);
+    assert.equal(
+      !!parser.finish(1).usageLimit,
+      expected,
+      JSON.stringify(result),
+    );
   }
 });
 
@@ -113,40 +110,28 @@ void test("quota warnings, tool output and recoverable throttles do not interrup
   for (const backend of ["claude", "codex", "cursor"] as const) {
     const events: DriverEvent[] = [];
     const parser = new CliEventParser(backend, (event) => events.push(event));
-    parser.line(
-      JSON.stringify({
+    parser.line("You've hit your usage limit", "stderr");
+    feed(
+      parser,
+      {
         type: "rate_limit_event",
         rate_limit_info: { status: "allowed_warning" },
-      }),
-      "stdout",
-    );
-    parser.line("You've hit your usage limit", "stderr");
-    parser.line(
-      JSON.stringify({
+      },
+      {
         type: "user",
         message: {
           content: [
             { type: "tool_result", content: "You've hit your usage limit" },
           ],
         },
-      }),
-      "stdout",
-    );
-    parser.line(
-      JSON.stringify({
-        type: "error",
-        message: "429 Too Many Requests; retrying",
-      }),
-      "stdout",
-    );
-    parser.line(
-      JSON.stringify({
+      },
+      { type: "error", message: "429 Too Many Requests; retrying" },
+      {
         type: backend === "codex" ? "turn.completed" : "result",
         subtype: "success",
         is_error: false,
         result: "Quota exceeded is an error message",
-      }),
-      "stdout",
+      },
     );
     assert.equal(parser.finish(0).usageLimit, undefined);
     assert.equal(
@@ -159,36 +144,27 @@ void test("quota warnings, tool output and recoverable throttles do not interrup
 void test("Claude does not reuse a recovered refusal for a later unrelated failure", () => {
   for (const recovered of [true, false]) {
     const parser = new CliEventParser("claude", () => {});
-    parser.line(
-      JSON.stringify({
-        type: "assistant",
-        is_api_error_message: true,
-        api_error: "usage_limit_reached",
-        message: { content: [] },
-      }),
-      "stdout",
-    );
+    feed(parser, {
+      type: "assistant",
+      is_api_error_message: true,
+      api_error: "usage_limit_reached",
+      message: { content: [] },
+    });
     if (recovered) {
-      parser.line(
-        JSON.stringify({
-          type: "assistant",
-          message: {
-            content: [{ type: "text", text: "Fallback model succeeded" }],
-          },
-        }),
-        "stdout",
-      );
+      feed(parser, {
+        type: "assistant",
+        message: {
+          content: [{ type: "text", text: "Fallback model succeeded" }],
+        },
+      });
     }
 
-    parser.line(
-      JSON.stringify({
-        type: "result",
-        subtype: recovered ? "error_during_execution" : "error_max_turns",
-        is_error: true,
-        errors: ["Unrelated terminal failure"],
-      }),
-      "stdout",
-    );
+    feed(parser, {
+      type: "result",
+      subtype: recovered ? "error_during_execution" : "error_max_turns",
+      is_error: true,
+      errors: ["Unrelated terminal failure"],
+    });
     assert.equal(parser.finish(1).usageLimit, undefined);
   }
 });

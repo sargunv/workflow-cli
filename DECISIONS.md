@@ -32,6 +32,9 @@ Tests must continue to prove reversed-completion full cache hits. Resume cannot
 guarantee exactly-once external side effects after a crash between an agent's
 edits and journal persistence.
 
+Confirmed backend subscription exhaustion follows root cancellation rather than
+becoming a cached failure.
+
 Root cancellation journals each outcome but leaves unfinished invocations
 without replay completion events. A stopped run therefore resumes its completed
 prefix and reruns the interrupted suffix. An intentional per-agent skip is a
@@ -41,17 +44,6 @@ reference warns that cached results need not be nonempty. Automatically retrying
 all nulls was rejected because it erases skips and repeats completed failures;
 edit the affected prompt/options or start a fresh run when retrying those is
 intended.
-
-Confirmed backend subscription exhaustion is a root interruption, using the same
-admission, cleanup and unfinished replay semantics as cancellation. A quota null
-must not reach script logic or remain cached after a reset. The report persists
-the backend refusal and available reset details; ordinary failures remain
-cacheable. Detection distinguishes advisory limit state and temporary throttling
-from terminal account refusal. There is no automatic wait/retry or leaf-session
-restoration. See the dated [harness investigation](docs/USAGE-LIMITS.md) for
-source evidence, supported classifiers and transport gaps. Completed calls
-beyond the unfinished prefix still rerun under the existing suffix-invalidation
-contract.
 
 ## Keep original schema semantics
 

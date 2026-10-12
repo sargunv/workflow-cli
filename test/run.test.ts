@@ -139,35 +139,6 @@ void test("usage limits stop admission, retain changed work and resume without c
   assert.equal(resumed.usageLimit, undefined);
 });
 
-void test("a streaming refusal stops the root before driver exit and cannot be caught as null", async () => {
-  let aborted = false;
-  const request = await fixture(async (task) => {
-    task.onEvent({
-      type: "usage-limit",
-      usageLimit: { message: "You've hit your usage limit" },
-    });
-    aborted = task.signal.aborted;
-    return {
-      text: "partial answer",
-      exitInfo: { code: 1, error: "terminated" },
-    };
-  });
-  request.source =
-    header +
-    "try { const result=await agent('limited'); if(result===null) log('dropped work'); } catch(e) { log('caught'); } return 'hidden interruption';";
-  const report = await runWorkflow(request);
-  assert.equal(aborted, true);
-  assert.equal(report.status, "cancelled");
-  assert.deepEqual(report.logs, []);
-  assert.equal(report.result, null);
-  assert.equal(
-    readTrace(join(report.directory, "replay.jsonl")).filter(
-      (event) => event.type === "finish",
-    ).length,
-    0,
-  );
-});
-
 void test("quota exhaustion during session correction closes the session without more retries", async () => {
   let corrections = 0;
   let closed = 0;

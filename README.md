@@ -65,12 +65,10 @@ progress; Ctrl-C stops that view while the run continues. `stop` waits for
 worker cleanup, and `skip` targets one queued or running leaf. Repeated signals
 to foreground runs remain cancellation requests and do not bypass cleanup.
 
-Confirmed Claude/Codex subscription usage-limit refusals also stop the run. The
-report names the backend and preserves reported limit/reset details. Resume
-after access is restored; completed prefix calls replay and the interrupted
-suffix runs live. Workflow does not wait or retry automatically. See
-[usage-limit handling and harness evidence](docs/USAGE-LIMITS.md) for
-recognition boundaries and the other backends' transport limitations.
+Confirmed Claude/Codex subscription refusals also stop the run and report
+limit/reset details. Resume after access returns; completed prefix calls replay
+and the interrupted suffix runs live. Workflow does not wait or retry
+automatically.
 
 Add `.workflow/` to your repository's `.gitignore`. Run records live in
 `.workflow/runs/` under the agent working directory; use `--runs-dir` to choose

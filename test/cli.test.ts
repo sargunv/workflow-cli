@@ -70,7 +70,7 @@ const ready = z.object({
 
 void test("CLI reports quota details and resume retries the interrupted leaf", async () => {
   const f = await fixture(
-    "await agent('seed'); await agent('limited'); return agent('after');",
+    "await agent('seed'); try { const result=await agent('limited'); if(result===null) log('dropped work'); } catch(e) { log('caught'); } return agent('after');",
   );
   f.env.WORKFLOW_FIXTURE_USAGE_LIMIT = fileURLToPath(
     new URL("./fixtures/claude-usage-limit.jsonl", import.meta.url),
@@ -79,6 +79,7 @@ void test("CLI reports quota details and resume retries the interrupted leaf", a
   assert.equal(stopped.code, 130, stopped.stderr);
   const final = JSON.parse(stopped.stdout.trim().split("\n").at(-1) ?? "null");
   assert.equal(final.status, "cancelled");
+  assert.deepEqual(final.logs, []);
   assert.equal(final.usageLimit.backend, "claude");
   assert.equal(final.usageLimit.limit, "seven_day_opus");
   assert.equal(final.usageLimit.resetsAt, "2026-10-13T00:00:00.000Z");

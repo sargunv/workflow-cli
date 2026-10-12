@@ -1,22 +1,5 @@
 # Completion tracking
 
-## Usage-limit interruption on 2026-10-12
-
-Claude/Codex subscription refusals now stop the root, close admission and leave
-interrupted calls without replay completions. Reports preserve backend, limit
-and available reset information. Ordinary failures and intentional skips remain
-cacheable; cleanup uncertainty still fails the run. Replay keeps its unchanged
-prefix/live suffix contract, and leaf-session restoration remains deferred.
-
-[The six-harness investigation](USAGE-LIMITS.md) records documentation and
-static source evidence plus the Cursor/ACP recognition gaps. No real agents were
-invoked or usage limits exercised. Source-derived synthetic fixtures and
-subprocess tests cover refusal parsing, queued/active cancellation, preserved
-worktrees, correction cleanup, final reports and resume. Local validation:
-**96/96 offline tests passed**; build, typecheck and lint/format checks passed.
-
-## Earlier implementation and reviews
-
 The initial VISION implementation and its original review evidence are recorded
 below. Those completion reviews did not adequately assess source readability;
 the later readability cleanup has its own changes, validation and reviews.
