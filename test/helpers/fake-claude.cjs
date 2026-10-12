@@ -25,6 +25,15 @@ if (process.argv.includes("--version")) {
     if (process.env.WORKFLOW_FIXTURE_CALLS) {
       fs.appendFileSync(process.env.WORKFLOW_FIXTURE_CALLS, prompt + "\n");
     }
+    if (prompt === "limited" && process.env.WORKFLOW_FIXTURE_USAGE_LIMIT) {
+      process.stdout.write(
+        fs.readFileSync(process.env.WORKFLOW_FIXTURE_USAGE_LIMIT),
+      );
+      // The runtime must cancel the owned process without waiting for its exit.
+      setInterval(() => {}, 1000);
+      return;
+    }
+
     console.log(
       JSON.stringify({
         type: "assistant",

@@ -20,6 +20,11 @@ these cases distinct when moving error handling. Cancellation closes admission
 before cleanup; an intentionally skipped agent can be replayed as null, while a
 root-cancelled invocation remains unfinished and must run again on resume.
 
+Confirmed subscription exhaustion uses that same root cancellation path. Drivers
+emit `usage-limit` only for recognized refusals; the root persists backend/reset
+details before aborting. Advisory quota state and generic 429s are insufficient.
+See [harness evidence and recognition boundaries](USAGE-LIMITS.md).
+
 Replay preparation holds prevent cached deliveries from racing script/child
 setup. Release them before awaiting child execution. Do not replace delivery
 scheduling with a broad `Promise.all` barrier: a pipeline item must be able to

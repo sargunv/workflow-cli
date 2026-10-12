@@ -114,6 +114,7 @@ export function prepareReport(report: Report) {
     directory: report.directory,
     logs: report.logs,
     error: report.error,
+    usageLimit: report.usageLimit,
     observation: report.observation,
     ...prepareResultDisplay(report),
   };

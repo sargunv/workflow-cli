@@ -90,12 +90,21 @@ export interface Usage {
 }
 
 export interface DriverEvent {
-  type: "activity" | "tool" | "usage" | "warning" | "raw";
+  type: "activity" | "tool" | "usage" | "usage-limit" | "warning" | "raw";
   text?: string;
   id?: string;
   usage?: Usage;
+  usageLimit?: UsageLimit;
   raw?: unknown;
 }
+
+export const usageLimit = z.object({
+  message: z.string(),
+  limit: z.string().optional(),
+  resetsAt: z.string().optional(),
+});
+
+export type UsageLimit = z.infer<typeof usageLimit>;
 
 export interface DriverRequest {
   prompt: string;
@@ -115,6 +124,7 @@ export interface DriverResult {
   text: string;
   structured?: Json;
   usage?: Usage;
+  usageLimit?: UsageLimit;
   exitInfo: { code: number; error?: string };
   session?: DriverSession;
 }

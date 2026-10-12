@@ -10,6 +10,189 @@ import {
 } from "../src/drivers/events.js";
 import { parseStructured } from "../src/runtime/schema.js";
 import type { DriverEvent } from "../src/types.js";
+
+void test("source-derived quota refusals retain details despite stderr and emit once", async () => {
+  for (const backend of ["claude", "codex"] as const) {
+    const events: DriverEvent[] = [];
+    const parser = new CliEventParser(backend, (event) => events.push(event));
+    const lines = await readFile(
+      new URL(`./fixtures/${backend}-usage-limit.jsonl`, import.meta.url),
+      "utf8",
+    );
+    for (const line of lines.trim().split("\n")) {
+      parser.line(line, "stdout");
+    }
+
+    const result = parser.finish(1, "backend stderr summary");
+    assert.ok(result.usageLimit);
+    assert.match(result.usageLimit.message, /usage limit/);
+    assert.equal(
+      events.filter((event) => event.type === "usage-limit").length,
+      1,
+    );
+    if (backend === "claude") {
+      assert.equal(result.usageLimit.limit, "seven_day_opus");
+      assert.equal(result.usageLimit.resetsAt, "2026-10-13T00:00:00.000Z");
+    } else {
+      assert.match(result.usageLimit.message, /Oct 13th, 2026 10:00 AM/);
+      assert.equal(
+        result.usageLimit.resetsAt,
+        undefined,
+        "exec loses the timestamp's timezone; preserve the vendor text",
+      );
+    }
+  }
+});
+
+void test("Claude legacy refusals and errors arrays interrupt only failed terminal results", () => {
+  for (const failure of [
+    {
+      subtype: "success",
+      is_error: true,
+      result: "You've hit your limit · resets 10am (America/Los_Angeles)",
+    },
+    {
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["You’ve hit your limit · resets Oct 13"],
+    },
+    {
+      subtype: "error_during_execution",
+      is_error: true,
+      api_error: "usage_limit_reached",
+      errors: ["Usage credits exhausted"],
+    },
+  ]) {
+    const parser = new CliEventParser("claude", () => {});
+    parser.line(JSON.stringify({ type: "result", ...failure }), "stdout");
+    assert.ok(parser.finish(1).usageLimit);
+  }
+
+  for (const failure of [
+    {
+      subtype: "error_max_budget_usd",
+      is_error: true,
+      errors: ["Exceeded max budget"],
+    },
+    {
+      subtype: "error_max_turns",
+      is_error: true,
+      result: "Maximum turns reached",
+    },
+    {
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["429 rate_limit_error: requests per minute exceeded"],
+    },
+    {
+      subtype: "error_during_execution",
+      is_error: true,
+      result: "You've hit your limit",
+      api_error: "model_requires_usage_credits",
+    },
+    {
+      subtype: "success",
+      is_error: false,
+      result: "You've hit your limit · example in a README",
+    },
+  ]) {
+    const parser = new CliEventParser("claude", () => {});
+    parser.line(
+      JSON.stringify({
+        type: "rate_limit_event",
+        rate_limit_info: { status: "rejected", resetsAt: 1791849600 },
+      }),
+      "stdout",
+    );
+    parser.line(JSON.stringify({ type: "result", ...failure }), "stdout");
+    assert.equal(parser.finish(1).usageLimit, undefined);
+  }
+});
+
+void test("quota warnings, tool output and recoverable throttles do not interrupt", () => {
+  for (const backend of ["claude", "codex", "cursor"] as const) {
+    const events: DriverEvent[] = [];
+    const parser = new CliEventParser(backend, (event) => events.push(event));
+    parser.line(
+      JSON.stringify({
+        type: "rate_limit_event",
+        rate_limit_info: { status: "allowed_warning" },
+      }),
+      "stdout",
+    );
+    parser.line("You've hit your usage limit", "stderr");
+    parser.line(
+      JSON.stringify({
+        type: "user",
+        message: {
+          content: [
+            { type: "tool_result", content: "You've hit your usage limit" },
+          ],
+        },
+      }),
+      "stdout",
+    );
+    parser.line(
+      JSON.stringify({
+        type: "error",
+        message: "429 Too Many Requests; retrying",
+      }),
+      "stdout",
+    );
+    parser.line(
+      JSON.stringify({
+        type: backend === "codex" ? "turn.completed" : "result",
+        subtype: "success",
+        is_error: false,
+        result: "Quota exceeded is an error message",
+      }),
+      "stdout",
+    );
+    assert.equal(parser.finish(0).usageLimit, undefined);
+    assert.equal(
+      events.filter((event) => event.type === "usage-limit").length,
+      0,
+    );
+  }
+});
+
+void test("Claude does not reuse a recovered refusal for a later unrelated failure", () => {
+  for (const recovered of [true, false]) {
+    const parser = new CliEventParser("claude", () => {});
+    parser.line(
+      JSON.stringify({
+        type: "assistant",
+        is_api_error_message: true,
+        api_error: "usage_limit_reached",
+        message: { content: [] },
+      }),
+      "stdout",
+    );
+    if (recovered) {
+      parser.line(
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            content: [{ type: "text", text: "Fallback model succeeded" }],
+          },
+        }),
+        "stdout",
+      );
+    }
+
+    parser.line(
+      JSON.stringify({
+        type: "result",
+        subtype: recovered ? "error_during_execution" : "error_max_turns",
+        is_error: true,
+        errors: ["Unrelated terminal failure"],
+      }),
+      "stdout",
+    );
+    assert.equal(parser.finish(1).usageLimit, undefined);
+  }
+});
+
 void test("recorded Claude stream yields native structured output and tool usage", async () => {
   const events: DriverEvent[] = [];
   const parser = new CliEventParser("claude", (event) => events.push(event));

@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import { configSchema } from "../src/config.js";
 import { capture } from "../src/drivers/process.js";
+import { readTrace } from "../src/runtime/replay.js";
 import { runWorkflow } from "../src/runtime/run.js";
 import type { RunRequest } from "../src/runtime/run.js";
 import { ProcessOwnershipError } from "../src/types.js";
@@ -69,6 +70,154 @@ async function initializeRepo(cwd: string) {
   await capture("git", ["add", ".gitignore"], cwd);
   await capture("git", ["commit", "-qm", "initial"], cwd);
 }
+
+void test("usage limits stop admission, retain changed work and resume without caching null", async () => {
+  let exhausted = true;
+  const calls: string[] = [];
+  const request = await fixture(async (task) => {
+    calls.push(task.prompt);
+    if (task.prompt === "ordinary failure") {
+      return { text: "", exitInfo: { code: 1, error: "ordinary failure" } };
+    }
+
+    if (exhausted && task.prompt === "active") {
+      await new Promise((resolve) =>
+        task.signal.addEventListener("abort", resolve, { once: true }),
+      );
+      throw new Error("active sibling cancelled");
+    }
+
+    if (exhausted && task.prompt === "limited") {
+      await writeFile(join(task.cwd, "partial.txt"), "unfinished work");
+      return {
+        text: "",
+        usageLimit: {
+          message: "Quota exhausted",
+          limit: "five_hour",
+          resetsAt: "2026-10-13T00:00:00Z",
+        },
+        exitInfo: { code: 1 },
+      };
+    }
+
+    return { text: task.prompt, exitInfo: { code: 0 } };
+  });
+  await initializeRepo(request.cwd);
+  request.source =
+    header +
+    "await agent('ordinary failure'); await agent('seed'); return parallel([()=>agent('active'),()=>agent('limited',{backend:'codex',isolation:'worktree'}),()=>agent('queued')]);";
+  const first = await runWorkflow(request);
+  assert.equal(first.status, "cancelled", first.error ?? "");
+  assert.match(
+    first.error ?? "",
+    /codex usage limit.*five_hour.*2026-10-13.*Resume/,
+  );
+  assert.equal(first.usageLimit?.backend, "codex");
+  assert.equal(first.usageLimit?.agentId, 4);
+  assert.deepEqual(calls, ["ordinary failure", "seed", "active", "limited"]);
+  const trace = readTrace(join(first.directory, "replay.jsonl"));
+  assert.deepEqual(
+    trace.filter((event) => event.type === "finish").map((event) => event.id),
+    [1, 2],
+  );
+  const tree = first.agents.find(
+    (agent) => agent.prompt === "limited",
+  )?.worktree;
+  assert.ok(tree?.kept);
+  assert.equal(
+    await readFile(join(tree.path, "partial.txt"), "utf8"),
+    "unfinished work",
+  );
+
+  exhausted = false;
+  calls.length = 0;
+  const resumed = await runWorkflow({ ...request, resume: first.runId });
+  assert.equal(resumed.status, "completed", resumed.error ?? "");
+  assert.deepEqual(resumed.result, ["active", "limited", "queued"]);
+  assert.deepEqual(calls.toSorted(), ["active", "limited", "queued"]);
+  assert.equal(resumed.agents.filter((agent) => agent.cached).length, 2);
+  assert.equal(resumed.usageLimit, undefined);
+});
+
+void test("a streaming refusal stops the root before driver exit and cannot be caught as null", async () => {
+  let aborted = false;
+  const request = await fixture(async (task) => {
+    task.onEvent({
+      type: "usage-limit",
+      usageLimit: { message: "You've hit your usage limit" },
+    });
+    aborted = task.signal.aborted;
+    return {
+      text: "partial answer",
+      exitInfo: { code: 1, error: "terminated" },
+    };
+  });
+  request.source =
+    header +
+    "try { const result=await agent('limited'); if(result===null) log('dropped work'); } catch(e) { log('caught'); } return 'hidden interruption';";
+  const report = await runWorkflow(request);
+  assert.equal(aborted, true);
+  assert.equal(report.status, "cancelled");
+  assert.deepEqual(report.logs, []);
+  assert.equal(report.result, null);
+  assert.equal(
+    readTrace(join(report.directory, "replay.jsonl")).filter(
+      (event) => event.type === "finish",
+    ).length,
+    0,
+  );
+});
+
+void test("quota exhaustion during session correction closes the session without more retries", async () => {
+  let corrections = 0;
+  let closed = 0;
+  const request = await fixture(async () => ({
+    text: "invalid JSON",
+    exitInfo: { code: 0 },
+    session: {
+      async prompt() {
+        corrections++;
+        return {
+          text: "",
+          usageLimit: { message: "usage exhausted" },
+          exitInfo: { code: 1 },
+        };
+      },
+      async close() {
+        closed++;
+      },
+    },
+  }));
+  const detect = request.drivers.claude.detect.bind(request.drivers.claude);
+  request.drivers.claude.detect = async (cwd, signal) => ({
+    ...(await detect(cwd, signal)),
+    correction: "session",
+  });
+  request.source =
+    header +
+    "return agent('task',{schema:{type:'object',properties:{value:{type:'string'}}}});";
+  const report = await runWorkflow(request);
+  assert.equal(report.status, "cancelled", report.error ?? "");
+  assert.deepEqual([corrections, closed], [1, 1]);
+  assert.equal(readTrace(join(report.directory, "replay.jsonl")).length, 1);
+});
+
+void test("uncertain cleanup still fails a quota-interrupted run", async () => {
+  const request = await fixture(async (task) => {
+    task.onEvent({
+      type: "usage-limit",
+      usageLimit: { message: "Usage exhausted" },
+    });
+    throw new ProcessOwnershipError("Backend process ownership uncertain");
+  });
+  request.source = header + "return agent('limited');";
+  const report = await runWorkflow(request);
+  assert.equal(report.status, "failed");
+  assert.match(report.error ?? "", /ownership uncertain/);
+  assert.equal(report.usageLimit?.backend, "claude");
+  assert.equal(readTrace(join(report.directory, "replay.jsonl")).length, 1);
+});
+
 void test("integrated execution enforces concurrency, records usage and fully replays", async () => {
   let active = 0;
   let peak = 0;

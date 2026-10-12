@@ -1,5 +1,13 @@
 # Recorded protocol fixtures
 
+`claude-usage-limit.jsonl` and `codex-usage-limit.jsonl` are **synthetic,
+source-derived** quota fixtures, not live recordings. Their provenance and
+recognition boundaries are documented in [the usage-limit investigation](../../docs/USAGE-LIMITS.md).
+No subscription was exhausted to produce them. The Claude example models the
+2.1.296 typed refusal and Unix-seconds reset metadata; the Codex example models
+exec's message-only `error`/`turn.failed` stream. Dates, IDs and counters are
+invented test data.
+
 `claude-success.jsonl` is derived from a real Claude CLI 2.1.261 session using
 `claude-haiku-4-5-20251001` on 2026-09-05, run `wf_184c85f2d3b1`. It retains
 assistant text/tool-use blocks and terminal result/usage fields. Unrelated

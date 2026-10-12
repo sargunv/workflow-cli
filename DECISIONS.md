@@ -42,6 +42,17 @@ all nulls was rejected because it erases skips and repeats completed failures;
 edit the affected prompt/options or start a fresh run when retrying those is
 intended.
 
+Confirmed backend subscription exhaustion is a root interruption, using the same
+admission, cleanup and unfinished replay semantics as cancellation. A quota null
+must not reach script logic or remain cached after a reset. The report persists
+the backend refusal and available reset details; ordinary failures remain
+cacheable. Detection distinguishes advisory limit state and temporary throttling
+from terminal account refusal. There is no automatic wait/retry or leaf-session
+restoration. See the dated [harness investigation](docs/USAGE-LIMITS.md) for
+source evidence, supported classifiers and transport gaps. Completed calls
+beyond the unfinished prefix still rerun under the existing suffix-invalidation
+contract.
+
 ## Keep original schema semantics
 
 BACKENDS.md suggests adding all properties to `required` and setting

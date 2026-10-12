@@ -13,6 +13,7 @@ import type {
   DriverResult,
   DriverSession,
   WorktreeRecord,
+  UsageLimit,
 } from "../types.js";
 import type { RunEvent } from "./run.js";
 import {
@@ -47,6 +48,7 @@ interface AgentServices {
   emit: (event: RunEvent) => void;
   writeTranscript: (event: unknown) => void;
   failRun: (error: unknown) => void;
+  interruptRun: (limit: UsageLimit) => void;
 }
 
 /** Owns one live leaf's resources. The root owns admission, replay and journaling.
@@ -293,6 +295,12 @@ export class AgentExecution {
       }
 
       this.addUsage(result);
+      if (result.usageLimit) {
+        this.services.interruptRun(result.usageLimit);
+        throw new Error(result.usageLimit.message);
+      }
+
+      signal.throwIfAborted();
       if (result.exitInfo.code !== 0 || result.exitInfo.error) {
         throw new Error(
           result.exitInfo.error ?? `Backend exited ${result.exitInfo.code}`,
@@ -338,6 +346,10 @@ export class AgentExecution {
 
   private onDriverEvent(event: DriverEvent) {
     this.services.writeTranscript({ attempt: this.attempt, ...event });
+    if (event.type === "usage-limit" && event.usageLimit) {
+      this.services.interruptRun(event.usageLimit);
+    }
+
     if (event.type === "tool") {
       this.record.toolCalls++;
     }
