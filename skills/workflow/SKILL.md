@@ -10,14 +10,15 @@ find-verify-fix loop whose control flow is clearer as code. Stay inline for a
 single task or work whose next step needs continuous human judgment. The script
 orchestrates; leaf agents perform model-driven work.
 
-Run `workflow info` first. Select an available backend and an actual model from
-its output. Check its effort levels, structured-output strategy, and enforceable
-tool policies. Never copy model names from an example without checking this
-installation. The CLI always disables approval prompts; this does not grant
-additional user authorization. Prefer `toolPolicy: 'read-only'` for review
-stages on backends that enforce it, and `isolation: 'worktree'` for parallel
-edits. Use a container or VM for untrusted repositories. ACP backends currently
-cannot enforce read-only policies and reject such a request.
+Run `workflow info` first. Select an available backend and a model using its
+output and discovery notes. Claude lists aliases; full model IDs accepted by its
+CLI also work. Check its effort levels, structured-output strategy, and
+enforceable tool policies. Never copy model names from an example without
+checking this installation. The CLI always disables approval prompts; this does
+not grant additional user authorization. Prefer `toolPolicy: 'read-only'` for
+review stages on backends that enforce it, and `isolation: 'worktree'` for
+parallel edits. Use a container or VM for untrusted repositories. ACP backends
+currently cannot enforce read-only policies and reject such a request.
 
 ## Script contract
 

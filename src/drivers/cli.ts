@@ -17,7 +17,7 @@ const binaries = { claude: "claude", codex: "codex", cursor: "cursor-agent" };
 
 const capabilityNotes: Record<CliBackend, string> = {
   claude:
-    "Static model IDs; configured default and per-model effort support are not exposed by the CLI. --effort accepts low, medium, high, xhigh, max; requested levels are passed to Claude for validation. Minimal (--bare) disables OAuth/keychain authentication; Workflow enables it only with ANTHROPIC_API_KEY. Helper-only authentication is not discovered.",
+    "Static, non-exhaustive model aliases; Claude resolves them using its provider and configuration. Any model ID accepted by claude can be passed through, including IDs absent from this list. Omit model to use Claude's configured default; configured default and per-model effort support are not exposed by the CLI. --effort accepts low, medium, high, xhigh, max; requested levels are passed to Claude for validation. Minimal (--bare) disables OAuth/keychain authentication; Workflow enables it only with ANTHROPIC_API_KEY. Helper-only authentication is not discovered.",
   codex:
     "The model catalog does not identify the configured default; omitting model delegates to Codex configuration. Hidden models and effort levels outside Workflow's low/medium/high/xhigh/max API are omitted.",
   cursor:
@@ -25,13 +25,10 @@ const capabilityNotes: Record<CliBackend, string> = {
 };
 
 const claudeModels: ModelInfo[] = [
-  {
-    id: "claude-fable-5-1",
-    efforts: [],
-  },
-  { id: "claude-opus-5", efforts: [] },
-  { id: "claude-sonnet-5", efforts: [] },
-  { id: "claude-haiku-4-5-20251001", efforts: [] },
+  { id: "fable", efforts: [] },
+  { id: "opus", efforts: [] },
+  { id: "sonnet", efforts: [] },
+  { id: "haiku", efforts: [] },
 ];
 
 export function codexModels(output: string): ModelInfo[] {

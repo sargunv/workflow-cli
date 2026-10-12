@@ -404,6 +404,14 @@ void test("info exposes the same capabilities in JSON and human output", async (
           name: z.string(),
           available: z.boolean(),
           transport: z.string(),
+          models: z.array(
+            z.object({
+              id: z.string(),
+              default: z.boolean().optional(),
+              efforts: z.array(z.string()),
+            }),
+          ),
+          notes: z.array(z.string()),
         }),
       ),
       profiles: z.record(z.string(), z.unknown()),
@@ -416,9 +424,20 @@ void test("info exposes the same capabilities in JSON and human output", async (
       .map((backend) => backend.name),
     ["claude"],
   );
-  assert.equal(
-    info.backends.find((backend) => backend.name === "claude")?.transport,
-    "cli",
+  const claude = info.backends.find((backend) => backend.name === "claude");
+  assert.ok(claude);
+  assert.equal(claude.transport, "cli");
+  assert.deepEqual(claude.models, [
+    { id: "fable", efforts: [] },
+    { id: "opus", efforts: [] },
+    { id: "sonnet", efforts: [] },
+    { id: "haiku", efforts: [] },
+  ]);
+  assert.match(claude.notes.join("\n"), /Static, non-exhaustive model aliases/);
+  assert.match(claude.notes.join("\n"), /Any model ID accepted by claude/);
+  assert.match(
+    claude.notes.join("\n"),
+    /Omit model to use Claude's configured default/,
   );
   assert.deepEqual(info.profiles, {});
 
@@ -431,6 +450,41 @@ void test("info exposes the same capabilities in JSON and human output", async (
     human.stdout,
     /transport cli; structured native; correction turn/,
   );
-  assert.match(human.stdout, /Static model IDs/);
+  assert.match(human.stdout, /models fable, opus, sonnet, haiku/);
+  for (const note of claude.notes) {
+    assert.ok(human.stdout.includes(note));
+  }
   assert.match(human.stdout, /profiles\n  none/);
+});
+
+void test("Claude passes aliases and unlisted model IDs to the harness unchanged", async () => {
+  const models = [
+    "opus",
+    "claude-opus-5-5",
+    "claude-sonnet-5-5",
+    "claude-haiku-5-5",
+    "provider/custom-deployment",
+  ];
+  const f = await fixture(
+    `return parallel(${JSON.stringify(models)}.map(model => () => agent('model test', {model})));`,
+  );
+  const argvLog = join(f.cwd, "argv.jsonl");
+  f.env.WORKFLOW_FIXTURE_ARGV = argvLog;
+
+  const run = await command(["run", f.script, "--json"], f);
+  assert.equal(run.code, 0, run.stderr);
+  const final = JSON.parse(run.stdout.trim().split("\n").at(-1) ?? "null");
+  assert.deepEqual(
+    final.result,
+    models.map(() => "model test"),
+  );
+  const invocations: string[][] = (await readFile(argvLog, "utf8"))
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(invocations.length, models.length);
+  assert.deepEqual(
+    new Set(invocations.map((argv) => argv[argv.indexOf("--model") + 1])),
+    new Set(models),
+  );
 });
