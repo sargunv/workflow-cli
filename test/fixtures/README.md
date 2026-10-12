@@ -1,5 +1,10 @@
 # Recorded protocol fixtures
 
+The Claude/Codex usage-limit fixtures are synthetic examples derived from
+Claude 2.1.296 embedded schemas and Codex exec source; dates and IDs are invented.
+[PR #11](https://github.com/sargunv/workflow-cli/pull/11) records the source evidence.
+No live quota probes were used.
+
 `claude-success.jsonl` is derived from a real Claude CLI 2.1.261 session using
 `claude-haiku-4-5-20251001` on 2026-09-05, run `wf_184c85f2d3b1`. It retains
 assistant text/tool-use blocks and terminal result/usage fields. Unrelated

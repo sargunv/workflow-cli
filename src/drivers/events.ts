@@ -1,7 +1,13 @@
 import { z } from "zod";
 
 import { jsonValue } from "../types.js";
-import type { DriverEvent, DriverResult, Json, Usage } from "../types.js";
+import type {
+  DriverEvent,
+  DriverResult,
+  Json,
+  Usage,
+  UsageLimit,
+} from "../types.js";
 
 const record = z.record(z.string(), z.unknown());
 
@@ -86,6 +92,10 @@ export class CliEventParser {
 
   terminal = false;
 
+  private usageLimit: UsageLimit | undefined;
+
+  private claudeApiError: Record<string, unknown> | undefined;
+
   private tools = new Set<string>();
 
   private cursorFinal: string | undefined;
@@ -118,6 +128,7 @@ export class CliEventParser {
       text: this.text,
       structured: this.structured,
       usage: this.usage,
+      usageLimit: this.usageLimit,
       exitInfo: {
         code,
         error:
@@ -158,12 +169,21 @@ export class CliEventParser {
       this.error =
         string(object(event.error).message ?? event.message) ||
         "Codex turn failed";
+      // exec JSON drops the typed UsageLimitReached error, retaining its message.
+      if (/^You[’']ve hit your usage limit\b/.test(this.error)) {
+        this.recordUsageLimit({ message: this.error });
+      }
     }
   }
 
   private claudeOrCursorEvent(event: Record<string, unknown>) {
     const message = object(event.message);
     if (event.type === "assistant") {
+      if (this.backend === "claude") {
+        this.claudeApiError =
+          event.is_api_error_message === true ? event : undefined;
+      }
+
       if (this.backend === "cursor") {
         const parts = array(message.content)
           .map(object)
@@ -224,7 +244,62 @@ export class CliEventParser {
       event.is_error === true ||
       (event.subtype !== undefined && event.subtype !== "success")
     ) {
-      this.error = this.text || string(event.subtype) || "Backend failed";
+      this.error =
+        array(event.errors).map(string).filter(Boolean).join("\n") ||
+        this.text ||
+        string(event.subtype) ||
+        "Backend failed";
+      if (this.backend === "claude") {
+        this.claudeUsageLimit(event);
+      }
+    }
+  }
+
+  private claudeUsageLimit(event: Record<string, unknown>) {
+    if (
+      [
+        "error_max_turns",
+        "error_max_budget_usd",
+        "error_max_structured_output_retries",
+      ].includes(string(event.subtype))
+    ) {
+      return;
+    }
+
+    const apiError = this.claudeApiError ?? {};
+    const typed = event.api_error ?? apiError.api_error;
+    const message = this.error ?? "Claude usage limit reached";
+    // A rate_limit_event is advisory: overage, grace or fallback may still succeed.
+    // Only classify a failed terminal result, using the typed refusal when present.
+    if (
+      typed !== "usage_limit_reached" &&
+      (typed !== undefined ||
+        !/^You[’']ve hit your (?:usage )?limit\b/.test(message))
+    ) {
+      return;
+    }
+
+    // Advisory state can belong to a prior model or request after fallback.
+    // Only the refusal's own parameters identify its limit and reset reliably.
+    const details = object(object(apiError.api_error_params).rate_limit_info);
+    const reset = details.resetsAt;
+    const timestamp =
+      typeof reset === "number" ? new Date(reset * 1000) : undefined;
+    this.recordUsageLimit({
+      message,
+      ...(typeof details.rateLimitType === "string"
+        ? { limit: details.rateLimitType }
+        : {}),
+      ...(timestamp && Number.isFinite(timestamp.getTime())
+        ? { resetsAt: timestamp.toISOString() }
+        : {}),
+    });
+  }
+
+  private recordUsageLimit(limit: UsageLimit) {
+    if (!this.usageLimit) {
+      this.usageLimit = limit;
+      this.emit({ type: "usage-limit", usageLimit: limit });
     }
   }
 

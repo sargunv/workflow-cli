@@ -32,6 +32,9 @@ Tests must continue to prove reversed-completion full cache hits. Resume cannot
 guarantee exactly-once external side effects after a crash between an agent's
 edits and journal persistence.
 
+Confirmed backend subscription exhaustion follows root cancellation rather than
+becoming a cached failure.
+
 Root cancellation journals each outcome but leaves unfinished invocations
 without replay completion events. A stopped run therefore resumes its completed
 prefix and reruns the interrupted suffix. An intentional per-agent skip is a

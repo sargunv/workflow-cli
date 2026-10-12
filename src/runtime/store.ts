@@ -10,7 +10,14 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { agentOptions, agentRecord, jsonValue, metadata } from "../types.js";
+import {
+  agentOptions,
+  agentRecord,
+  backendName,
+  jsonValue,
+  metadata,
+  usageLimit,
+} from "../types.js";
 import type { AgentRecord, Json, Metadata } from "../types.js";
 
 export const activeAgentSchema = z.object({
@@ -51,6 +58,9 @@ export const reportSchema = z.object({
   logs: z.array(z.string()),
   result: jsonValue,
   error: z.string().optional(),
+  usageLimit: usageLimit
+    .extend({ backend: backendName, agentId: z.number().int().positive() })
+    .optional(),
   resume: z.string().optional(),
 });
 

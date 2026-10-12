@@ -22,6 +22,7 @@ import type {
   Driver,
   Detection,
   Json,
+  UsageLimit,
 } from "../types.js";
 import { AgentExecution } from "./agent.js";
 import { startControl } from "./control.js";
@@ -182,6 +183,9 @@ export class WorkflowRun {
     } catch (error) {
       finalStatus = this.controller.signal.aborted ? "cancelled" : "failed";
       this.store.report.error = errorText(error);
+      if (this.store.report.usageLimit) {
+        this.store.report.error = errorText(this.controller.signal.reason);
+      }
     } finally {
       this.stopped = true;
       if (this.pending.size) {
@@ -276,6 +280,28 @@ export class WorkflowRun {
         this.scripts.get(childPath) ?? (await this.readChild(childPath));
       await this.preflight(child, childPath, depth + 1);
     }
+  }
+
+  private interruptForUsageLimit(
+    id: number,
+    backend: BackendName,
+    limit: UsageLimit,
+  ) {
+    if (this.controller.signal.aborted) {
+      return;
+    }
+
+    this.store.report.usageLimit = { ...limit, backend, agentId: id };
+    const details = [
+      limit.limit,
+      limit.resetsAt ? `resets at ${limit.resetsAt}` : undefined,
+    ]
+      .filter(Boolean)
+      .join("; ");
+    const reason = `${backend} usage limit${details ? ` (${details})` : ""}: ${limit.message} Resume this run after access is restored.`;
+    this.store.report.error = reason;
+    this.persist(() => this.store.save());
+    this.cancel(reason);
   }
 
   private fail(error: unknown) {
@@ -690,6 +716,8 @@ export class WorkflowRun {
         writeTranscript: (event) =>
           this.persist(() => this.store.transcript(id, event)),
         failRun: (error) => this.fail(error),
+        interruptRun: (limit) =>
+          this.interruptForUsageLimit(id, options.backend, limit),
       },
     );
 

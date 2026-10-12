@@ -67,6 +67,42 @@ const ready = z.object({
   runId: z.string(),
   directory: z.string(),
 });
+
+void test("CLI reports quota details and resume retries the interrupted leaf", async () => {
+  const f = await fixture(
+    "await agent('seed'); try { const result=await agent('limited'); if(result===null) log('dropped work'); } catch(e) { log('caught'); } return agent('after');",
+  );
+  f.env.WORKFLOW_FIXTURE_USAGE_LIMIT = fileURLToPath(
+    new URL("./fixtures/claude-usage-limit.jsonl", import.meta.url),
+  );
+  const stopped = await command(["run", f.script, "--json"], f);
+  assert.equal(stopped.code, 130, stopped.stderr);
+  const final = JSON.parse(stopped.stdout.trim().split("\n").at(-1) ?? "null");
+  assert.equal(final.status, "cancelled");
+  assert.deepEqual(final.logs, []);
+  assert.equal(final.usageLimit.backend, "claude");
+  assert.equal(final.usageLimit.limit, "seven_day_opus");
+  assert.equal(final.usageLimit.resetsAt, "2026-10-13T00:00:00.000Z");
+  const shown = await command(["show", final.runId], f);
+  assert.match(shown.stdout, /claude usage limit.*seven_day_opus.*2026-10-13/);
+
+  delete f.env.WORKFLOW_FIXTURE_USAGE_LIMIT;
+  const resumed = await command(
+    ["run", f.script, "--resume", final.runId, "--json"],
+    f,
+  );
+  assert.equal(resumed.code, 0, resumed.stderr);
+  const completed = JSON.parse(
+    resumed.stdout.trim().split("\n").at(-1) ?? "null",
+  );
+  assert.equal(completed.result, "after");
+  assert.equal(completed.counts.cached, 1);
+  assert.equal(
+    await readFile(join(f.cwd, "calls"), "utf8"),
+    "seed\nlimited\nlimited\nafter\n",
+  );
+});
+
 async function waitActive(root: string, id: string, count: number) {
   // CI workers may still be cold-loading QuickJS and fixture processes after readiness.
   const deadline = performance.now() + 10_000;
