@@ -30,10 +30,9 @@ contain context occupancy (`used`/`size`), not input/output token usage; those
 values are deliberately not counted as tokens spent.
 
 Claude's CLI help exposes five effort flag values but no per-model effort
-catalog or configured-default query. Static, non-exhaustive model aliases are
-listed without invented per-model levels or a default marker; full model IDs
-accepted by Claude also pass through. Codex's catalog does not identify the
-configured default either; catalog priority is not treated as that default.
+catalog or configured-default query. Static model aliases are listed without
+invented per-model levels or a default marker. Codex's catalog does not identify
+the configured default either; catalog priority is not treated as that default.
 Hidden Codex models and values outside the script's five-level effort API are
 excluded. Cursor effort variants remain part of its literal model IDs.
 
