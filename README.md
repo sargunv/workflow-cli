@@ -41,9 +41,11 @@ convergence patterns, with documented inputs and offline behavior tests.
 
 ## Run and inspect
 
-Use an available backend and model from `workflow info`. `run --backend` and
-`run --model` set run defaults; explicit agent/profile selections can override
-them:
+Use an available backend and model from `workflow info`. Claude lists static,
+non-exhaustive aliases that its CLI resolves; full model IDs accepted by Claude
+also work, including IDs absent from `info`. Use a full ID to pin a version.
+`run --backend` and `run --model` set run defaults; explicit agent/profile
+selections can override them:
 
 ```sh
 workflow run ./examples/hello.js --args '{"backend":"claude","model":"claude-haiku-4-5-20251001"}'

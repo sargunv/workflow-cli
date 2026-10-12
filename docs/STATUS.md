@@ -1,5 +1,21 @@
 # Completion tracking
 
+## Claude model discovery on 2026-10-12
+
+Issue #9 identified stale Claude release IDs in `workflow info`. Discovery now
+lists static, non-exhaustive family aliases and explains full-ID passthrough in
+both human and JSON output. The README and authoring skill explain alias
+resolution and version pinning. A review of all six drivers confirmed that only
+Claude maintained a release-ID table; the other five use CLI or ACP catalogs.
+
+Claude Code 2.1.296 help and the vendor's model configuration docs were checked
+without sending a model prompt. Offline regressions cover discovery output and
+unchanged passthrough of an alias, the three 5.5 IDs, and a custom deployment
+ID. Local validation passed all 88 offline tests, typechecking/package build,
+and lint/format checks. No new live agent probes were run.
+
+## Earlier implementation and review evidence
+
 The initial VISION implementation and its original review evidence are recorded
 below. Those completion reviews did not adequately assess source readability;
 the later readability cleanup has its own changes, validation and reviews.

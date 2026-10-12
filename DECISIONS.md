@@ -104,6 +104,17 @@ vendor configuration and info says the default is unreported. Choosing a static
 default would override the user's backend configuration. Revisit when a vendor
 query can report the effective value without making a model call.
 
+## Claude discovery lists aliases rather than pinned releases
+
+Claude has no model-listing command. `info` lists the static, non-exhaustive
+family aliases `fable`, `opus`, `sonnet`, and `haiku`, leaving their resolution
+to Claude's provider and configuration. A table of release IDs ages whenever
+models ship and cannot represent provider-specific deployment IDs. Both human
+and JSON discovery notes explain that any model ID accepted by Claude can pass
+through; callers can use a full ID to pin a version. Revisit when Claude exposes
+a supported live catalog. Codex and Cursor retain their CLI catalogs; OpenCode,
+Kimi, and Qwen retain native ACP session discovery.
+
 ## Child source selection and saved artifacts
 
 Literal string and object child references are resolved and loaded before leaf

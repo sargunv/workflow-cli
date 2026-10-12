@@ -16,6 +16,13 @@ if (process.argv.includes("--version")) {
     Number(process.env.WORKFLOW_FIXTURE_DISCOVERY_DELAY ?? 0),
   );
 } else {
+  if (process.env.WORKFLOW_FIXTURE_ARGV) {
+    fs.appendFileSync(
+      process.env.WORKFLOW_FIXTURE_ARGV,
+      JSON.stringify(process.argv.slice(2)) + "\n",
+    );
+  }
+
   let prompt = "";
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk) => {

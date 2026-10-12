@@ -13,6 +13,22 @@ Findings from probing the agent CLIs installed on this machine on 2026-09-05. Ev
 
 Not installed: gemini, aider, amp, copilot, droid, goose, crush.
 
+## Claude model discovery follow-up (2026-10-12)
+
+Claude Code 2.1.296 was checked with `claude --version` and `claude --help`;
+no model prompt was sent. Help still accepts an alias or full model name for
+`--model` and exposes no model-listing command. The current
+[model configuration docs](https://code.claude.com/docs/en/model-config)
+document `fable`, `opus`, `sonnet`, and `haiku`, with resolution depending on
+provider and configuration. Workflow now lists these static, non-exhaustive
+aliases and explains that full IDs accepted by Claude also pass through.
+
+A review of the other implemented drivers found no release-ID tables: Codex
+uses `codex debug models`, Cursor uses `cursor-agent models`, and OpenCode,
+Kimi, and Qwen obtain their model choices from native ACP sessions. This is an
+implementation review, not a new live probe of those five vendors. The original
+CLI observations below remain dated to 2026-09-05.
+
 ## Capability matrix
 
 | | claude | codex | opencode | kimi | cursor | qwen |
