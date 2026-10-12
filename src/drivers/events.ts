@@ -94,8 +94,6 @@ export class CliEventParser {
 
   private usageLimit: UsageLimit | undefined;
 
-  private claudeLimitInfo: Record<string, unknown> = {};
-
   private claudeApiError: Record<string, unknown> | undefined;
 
   private tools = new Set<string>();
@@ -179,10 +177,6 @@ export class CliEventParser {
   }
 
   private claudeOrCursorEvent(event: Record<string, unknown>) {
-    if (this.backend === "claude" && event.type === "rate_limit_event") {
-      this.claudeLimitInfo = object(event.rate_limit_info);
-    }
-
     const message = object(event.message);
     if (event.type === "assistant") {
       if (this.backend === "claude") {
@@ -285,8 +279,9 @@ export class CliEventParser {
       return;
     }
 
-    const info = object(object(apiError.api_error_params).rate_limit_info);
-    const details = Object.keys(info).length ? info : this.claudeLimitInfo;
+    // Advisory state can belong to a prior model or request after fallback.
+    // Only the refusal's own parameters identify its limit and reset reliably.
+    const details = object(object(apiError.api_error_params).rate_limit_info);
     const reset = details.resetsAt;
     const timestamp =
       typeof reset === "number" ? new Date(reset * 1000) : undefined;

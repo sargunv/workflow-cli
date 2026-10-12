@@ -173,14 +173,27 @@ void test("quota exhaustion during session correction closes the session without
   assert.equal(readTrace(join(report.directory, "replay.jsonl")).length, 1);
 });
 
-void test("uncertain cleanup still fails a quota-interrupted run", async () => {
+void test("quota details persist before cleanup and cleanup uncertainty still fails the run", async () => {
+  let directory = "";
   const request = await fixture(async (task) => {
     task.onEvent({
       type: "usage-limit",
       usageLimit: { message: "Usage exhausted" },
     });
+    const saved = JSON.parse(
+      await readFile(join(directory, "report.json"), "utf8"),
+    );
+    assert.deepEqual(saved.usageLimit, {
+      backend: "claude",
+      agentId: 1,
+      message: "Usage exhausted",
+    });
+    assert.match(saved.error, /claude usage limit.*Usage exhausted/);
     throw new ProcessOwnershipError("Backend process ownership uncertain");
   });
+  request.onReady = (run) => {
+    directory = run.store.directory;
+  };
   request.source = header + "return agent('limited');";
   const report = await runWorkflow(request);
   assert.equal(report.status, "failed");

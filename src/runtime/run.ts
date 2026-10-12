@@ -298,9 +298,10 @@ export class WorkflowRun {
     ]
       .filter(Boolean)
       .join("; ");
-    this.cancel(
-      `${backend} usage limit${details ? ` (${details})` : ""}: ${limit.message} Resume this run after access is restored.`,
-    );
+    const reason = `${backend} usage limit${details ? ` (${details})` : ""}: ${limit.message} Resume this run after access is restored.`;
+    this.store.report.error = reason;
+    this.persist(() => this.store.save());
+    this.cancel(reason);
   }
 
   private fail(error: unknown) {

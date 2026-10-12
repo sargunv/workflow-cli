@@ -169,6 +169,38 @@ void test("Claude does not reuse a recovered refusal for a later unrelated failu
   }
 });
 
+void test("Claude legacy refusals do not inherit advisory limit/reset details", () => {
+  for (const status of ["allowed_warning", "rejected"]) {
+    const parser = new CliEventParser("claude", () => {});
+    feed(
+      parser,
+      {
+        type: "rate_limit_event",
+        rate_limit_info: {
+          status,
+          rateLimitType: "seven_day_opus",
+          resetsAt: 1791849600,
+        },
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [{ type: "text", text: "Fallback model succeeded" }],
+        },
+      },
+      {
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        result: "You've hit your limit · resets 10am",
+      },
+    );
+    assert.deepEqual(parser.finish(1).usageLimit, {
+      message: "You've hit your limit · resets 10am",
+    });
+  }
+});
+
 void test("recorded Claude stream yields native structured output and tool usage", async () => {
   const events: DriverEvent[] = [];
   const parser = new CliEventParser("claude", (event) => events.push(event));
