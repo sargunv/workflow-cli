@@ -499,7 +499,7 @@ void test("info exposes the same capabilities in JSON and human output", async (
       profiles: z.record(z.string(), z.unknown()),
     })
     .parse(JSON.parse(json.stdout));
-  assert.equal(info.backends.length, 6);
+  assert.equal(info.backends.length, 7);
   assert.deepEqual(
     info.backends
       .filter((backend) => backend.available)
@@ -521,6 +521,12 @@ void test("info exposes the same capabilities in JSON and human output", async (
     claude.notes.join("\n"),
     /Omit model to use Claude's configured default/,
   );
+  const muse = info.backends.find((backend) => backend.name === "muse");
+  assert.ok(muse);
+  assert.equal(muse.available, false);
+  assert.equal(muse.transport, "cli");
+  assert.deepEqual(muse.models, []);
+  assert.match(muse.notes.join("\n"), /no model catalog/);
   assert.deepEqual(info.profiles, {});
 
   const human = await command(["info"], f);

@@ -183,7 +183,8 @@ export function parseStructured(text: string): Json {
   return JSON.parse(fenced?.[1] ?? text);
 }
 
-export function codexNativeCompatible(schema: Record<string, Json>): boolean {
+// Codex and Muse native output accept only strict object schemas.
+export function strictNativeCompatible(schema: Record<string, Json>): boolean {
   const visit = (value: Json): boolean => {
     if (Array.isArray(value)) {
       return value.every(visit);

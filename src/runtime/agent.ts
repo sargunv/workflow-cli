@@ -17,10 +17,10 @@ import type {
 } from "../types.js";
 import type { RunEvent } from "./run.js";
 import {
-  codexNativeCompatible,
   compileSchema,
   parseStructured,
   schemaError,
+  strictNativeCompatible,
 } from "./schema.js";
 import {
   createWorktree,
@@ -190,7 +190,10 @@ export class AgentExecution {
       return false;
     }
 
-    if (options.backend === "codex" && !codexNativeCompatible(options.schema)) {
+    if (
+      (options.backend === "codex" || options.backend === "muse") &&
+      !strictNativeCompatible(options.schema)
+    ) {
       this.warn(
         `${options.backend} native output cannot preserve this schema; using prompted output with validation against the original schema`,
       );

@@ -47,6 +47,7 @@ async function fixture(
     opencode: driver,
     kimi: driver,
     qwen: driver,
+    muse: driver,
   };
   return {
     source: header + "return null;",

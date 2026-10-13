@@ -317,6 +317,73 @@ export class CliEventParser {
   }
 }
 
+export class MuseEventParser {
+  text = "";
+
+  error: string | undefined;
+
+  terminal = false;
+
+  private tools = new Set<string>();
+
+  constructor(private emit: (event: DriverEvent) => void) {}
+
+  line(line: string, channel: "stdout" | "stderr") {
+    this.emit({ type: "raw", raw: { channel, line } });
+    if (channel !== "stdout") {
+      return;
+    }
+
+    const event = decode(line);
+    if (!event) {
+      return;
+    }
+
+    const payload = object(event.payload);
+    if (event.payload_type === "run.output.delta") {
+      const delta = string(payload.text);
+      this.text += delta;
+      if (delta) {
+        this.emit({
+          type: "activity",
+          text: delta.split("\n")[0]?.slice(0, 160),
+        });
+      }
+    } else if (event.payload_type === "tool.result") {
+      const facts = object(payload.correlation_facts);
+      const id = string(payload.call_id);
+      if (id && !this.tools.has(id)) {
+        this.tools.add(id);
+        this.emit({ type: "tool", id, text: string(facts.tool_name) });
+      }
+    } else if (event.payload_type === "run.terminal.completed") {
+      this.terminal = true;
+      this.text = string(payload.text) || this.text;
+      if (payload.terminal !== "completed") {
+        this.error =
+          string(payload.reason) || `Muse run ${string(payload.terminal)}`;
+      }
+    }
+    // task.lifecycle.* records include reminder and subagent housekeeping
+    // that also appears on successful runs; only the run terminal is final.
+  }
+
+  finish(code: number, error?: string): DriverResult {
+    return {
+      text: this.text,
+      exitInfo: {
+        code,
+        error:
+          error ??
+          this.error ??
+          (!this.terminal
+            ? "Backend exited without a terminal event"
+            : undefined),
+      },
+    };
+  }
+}
+
 export class AcpEventParser {
   private text = "";
 

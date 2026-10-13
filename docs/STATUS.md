@@ -3,8 +3,8 @@
 The VISION.md implementation is complete: plain-JavaScript scripts in an
 isolated QuickJS sandbox, barrier-free `pipeline`/`parallel` orchestration,
 longest-unchanged-prefix resume, structured output with bounded corrections,
-Claude/Codex/Cursor CLI drivers and OpenCode/Kimi/Qwen ACP drivers, worktree
-isolation with opt-in shared paths, background runs with stop/skip/wait
+Claude/Codex/Cursor/Muse CLI drivers and OpenCode/Kimi/Qwen ACP drivers,
+worktree isolation with opt-in shared paths, background runs with stop/skip/wait
 controls, and the bundled authoring skill with runnable recipes.
 
 Deferred by design (see DECISIONS.md): real `budget` accounting (`total` stays

@@ -26,6 +26,7 @@ export const backendName = z.enum([
   "kimi",
   "cursor",
   "qwen",
+  "muse",
 ]);
 
 export type BackendName = z.infer<typeof backendName>;

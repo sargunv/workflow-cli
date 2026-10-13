@@ -34,6 +34,13 @@ the synthetic ACP helper replays these surfaces for the selection regression.
 Unrelated IDs, paths, thought chunks, hooks and provider catalogs were removed.
 Tests must never obtain fixtures by invoking a real agent automatically.
 
+`muse-success.jsonl` is sanitized from a Muse Code 1.4.7 probe on
+2026-10-13: `muse-spark-1.3` read a benign file under a strict output schema
+and returned its number. Only the model, tool-result, output-delta, and terminal
+records are retained; session, run, and call IDs and the probe path were
+replaced. The failed housekeeping-task shape in `muse.test.ts` comes from the
+quota-free `--provider echo` mode with reminders enabled.
+
 `cursor-models.txt` is the literal `cursor-agent models` catalog from the same
 2026-09-05 discovery, without prompts or session data. `qwen-session-config.json`
 retains `models` and `configOptions` from the recorded Qwen session/new response;

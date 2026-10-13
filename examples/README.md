@@ -2,7 +2,7 @@
 
 Run `workflow info` first and choose an installed backend and model. Every
 review recipe requests `toolPolicy: 'read-only'`; use a backend that advertises
-it (Claude, Codex, or Cursor in the verified installation). ACP backends
+it (Claude, Codex, Cursor, or Muse in the verified installation). ACP backends
 explicitly reject that restriction. These scripts inherit the run-level
 backend/model; they contain no vendor-specific model names. Live runs consume
 subscription quota.

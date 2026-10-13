@@ -30,8 +30,8 @@ is the authoritative script-authoring contract.
 - `workflow info` reports the backends, models, effort levels, structured
   output strategies, and tool policies available on this machine, so scripts
   never name a backend or model that is not installed.
-- Backends are explicit per agent and per run. Claude, Codex, and Cursor use
-  their headless CLIs; OpenCode, Kimi, and Qwen use native ACP. Backend
+- Backends are explicit per agent and per run. Claude, Codex, Cursor, and Muse
+  use their headless CLIs; OpenCode, Kimi, and Qwen use native ACP. Backend
   differences are absorbed in drivers, never in the script API.
 - Agents always run without approval prompts. Read-only tool policies and
   worktree isolation are the mitigations; a container or VM is the recommended
