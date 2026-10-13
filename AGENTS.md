@@ -13,7 +13,7 @@ harnesses.
 - `examples/`: runnable workflow recipes.
 - `test/`: offline behavior tests and recorded protocol fixtures.
 - `DECISIONS.md`: deliberate deviations, rationale, and reversal criteria.
-- `docs/STATUS.md`: implementation and verification tracking.
+- `docs/STATUS.md`: current implementation status, deferred work, verification.
 - `docs/MAINTENANCE.md`: ownership boundaries, source assets and validation map.
 
 ## Dev tool commands

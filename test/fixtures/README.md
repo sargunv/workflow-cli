@@ -27,7 +27,7 @@ that any installed vendor accepts the same operations.
 
 `codex-success.jsonl`, `cursor-success.jsonl`, `acp-opencode.jsonl`,
 `acp-kimi.jsonl` and `acp-qwen.jsonl` are sanitized from the single successful
-benign-file probes recorded in `docs/BACKEND-VERIFICATION.md` on 2026-09-05.
+benign-file probes run against the real backends on 2026-09-05.
 ACP records retain both turns. `qwen-model-config.json` preserves the configuration
 surfaces before and after selecting Flash, including its changed effort options;
 the synthetic ACP helper replays these surfaces for the selection regression.

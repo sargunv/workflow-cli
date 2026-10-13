@@ -5,8 +5,8 @@ Scripts fan work out, verify outputs, and replay unchanged calls after edits.
 Claude, Codex, and Cursor use their headless CLIs; OpenCode, Kimi, and Qwen use
 native ACP.
 
-See [implementation and verification](docs/STATUS.md) for requirement coverage,
-local validation and independent adversarial reviews.
+See [implementation status](docs/STATUS.md) for what is implemented, what is
+deferred, and how to verify it.
 
 ## Install from this checkout
 
@@ -145,7 +145,6 @@ agent subscriptions. See [VISION.md](VISION.md) for the product requirements,
 [BACKENDS.md](BACKENDS.md) for the dated vendor observations, and
 [DECISIONS.md](DECISIONS.md) for implementation choices and limitations.
 
-[Backend verification](docs/BACKEND-VERIFICATION.md) records the six real smoke
-probes and their limits. To deliberately verify a changed backend, run `mise run
+To deliberately verify a changed backend against a real binary, run `mise run
 probe -- --backend <name> --model <cheap-model>`. This manual target consumes
 quota; it is separate from the offline suite and never retries a probe.

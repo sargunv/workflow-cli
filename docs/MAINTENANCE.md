@@ -45,16 +45,8 @@ run check` include this step; examples remain standalone, readable scripts
 rather than generated artifacts. The formatter regression tests compare executed
 results and check idempotence.
 
-Keep one blank line between class members and top-level declarations. Put the
-public lifecycle before private supporting methods. Method bodies should read as
-logical paragraphs: preparation, validation, execution and cleanup. Keep related
-assignments together; do not separate every statement mechanically. Examples use
-paragraphs for schema definitions, loop state, worker stages and final results.
-Dprint preserves this layout, so source review must check it explicitly.
-
-Comments earn their space by explaining ownership, ordering or policy: replay
-holds, process-group anchors, append-only journals, atomic snapshots and direct
-semaphore handoff are examples. Avoid comments that merely narrate assignments.
+Source layout and comment conventions are in AGENTS.md; dprint preserves that
+layout, so source review must check it explicitly.
 
 Lint requires braces, separate variable declarations and no nested ternaries.
 These rules catch dense syntax; they do not establish good module boundaries.

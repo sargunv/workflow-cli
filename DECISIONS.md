@@ -92,10 +92,9 @@ acknowledges permission requests without interactive prompts. It advertises no
 client filesystem or terminal service. ACP tool policies are explicitly
 unsupported; requested restrictions fail rather than disappear.
 
-Live follow-up is recorded in `docs/BACKEND-VERIFICATION.md`. ACP sessions
-provide model-dependent settings that side-effect-free CLI catalogs omit, so
-discovery opens an empty vendor session without sending a model prompt. The
-alternative is stale capability inference from separate CLI/config formats.
+ACP sessions provide model-dependent settings that side-effect-free CLI catalogs
+omit, so discovery opens an empty vendor session without sending a model prompt.
+The alternative is stale capability inference from separate CLI/config formats.
 Revisit when native ACP exposes equivalent session-free discovery. Vendors may
 retain empty sessions. Qwen's CLI read-only and limit flags are not claimed over
 ACP; runtime deadlines remain available, and unverified tool restrictions fail
