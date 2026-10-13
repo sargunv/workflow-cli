@@ -20,6 +20,15 @@ review stages on backends that enforce it, and `isolation: 'worktree'` for
 parallel edits. Use a container or VM for untrusted repositories. ACP backends
 currently cannot enforce read-only policies and reject such a request.
 
+## Model selection guidance
+
+Based on which backends are available, load the relevant references to help you
+select a model.
+
+- [Claude](references/claude.md): Haiku, Sonnet, Opus, and Fable tiers, usually
+  in Claude Code
+- [GPT](references/gpt.md): Luna, Sol, and Astra tiers, usually in Codex
+
 ## Script contract
 
 Write a `.js` file. No TypeScript, imports, filesystem access, process access,

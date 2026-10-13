@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFile, mkdir, copyFile } from "node:fs/promises";
+import { readFile, cp } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -466,7 +466,7 @@ program
   .option("--print", "Print to stdout")
   .option(
     "--install <directory>",
-    "Install SKILL.md into a harness skill directory",
+    "Install the bundled skill and references into a harness skill directory",
   )
   .action(async (options: { print?: boolean; install?: string }) => {
     if (!!options.print === !!options.install) {
@@ -474,15 +474,14 @@ program
     }
 
     const source = fileURLToPath(
-      new URL("../skills/workflow/SKILL.md", import.meta.url),
+      new URL("../skills/workflow/", import.meta.url),
     );
     if (options.print) {
-      process.stdout.write(await readFile(source, "utf8"));
+      process.stdout.write(await readFile(join(source, "SKILL.md"), "utf8"));
     } else if (options.install) {
-      await mkdir(resolve(options.install), { recursive: true });
-      await copyFile(source, join(resolve(options.install), "SKILL.md"));
+      await cp(source, resolve(options.install), { recursive: true });
       process.stdout.write(
-        `Installed ${join(resolve(options.install), "SKILL.md")}\n`,
+        `Installed workflow skill into ${resolve(options.install)}\n`,
       );
     }
   });

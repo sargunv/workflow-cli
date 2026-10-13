@@ -34,9 +34,13 @@ workflow info
 workflow skill --install .claude/skills/workflow
 ```
 
-The [bundled skill](skills/workflow/SKILL.md) documents the complete script API
-and workflow patterns. It is also available through `workflow skill --print`.
-The [runnable recipe library](examples/README.md) includes all eight review and
+The [bundled skill](skills/workflow/SKILL.md) documents the complete script API,
+workflow patterns, and harness/model selection. Installation copies the whole
+skill directory, including its Claude and GPT references. Reinstalling updates
+bundled files and preserves unrelated files in the destination. `workflow skill
+--print` prints only the `SKILL.md` entrypoint; install the skill to make its
+linked references available locally. The
+[runnable recipe library](examples/README.md) includes all eight review and
 convergence patterns, with documented inputs and offline behavior tests.
 
 ## Run and inspect

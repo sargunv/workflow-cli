@@ -8,6 +8,7 @@ import {
   readFile,
   writeFile,
   readdir,
+  rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
@@ -66,6 +67,51 @@ const ready = z.object({
   type: z.literal("ready"),
   runId: z.string(),
   directory: z.string(),
+});
+
+void test("skill installation includes linked references and updates bundled files", async (t) => {
+  const f = await fixture("");
+  t.after(() => rm(f.cwd, { recursive: true, force: true }));
+  const destination = join(f.cwd, "skills", "workflow");
+  const source = fileURLToPath(new URL("../skills/workflow/", import.meta.url));
+
+  const installed = await command(["skill", "--install", destination], f);
+  assert.equal(installed.code, 0, installed.stderr);
+  for (const path of [
+    "SKILL.md",
+    "references/claude.md",
+    "references/gpt.md",
+  ]) {
+    assert.equal(
+      await readFile(join(destination, path), "utf8"),
+      await readFile(join(source, path), "utf8"),
+    );
+  }
+
+  await writeFile(join(destination, "SKILL.md"), "old entrypoint");
+  await writeFile(join(destination, "references", "claude.md"), "old guide");
+  await writeFile(join(destination, "references", "local.md"), "local notes");
+  const updated = await command(["skill", "--install", destination], f);
+  assert.equal(updated.code, 0, updated.stderr);
+  assert.equal(
+    await readFile(join(destination, "references", "claude.md"), "utf8"),
+    await readFile(join(source, "references", "claude.md"), "utf8"),
+  );
+  assert.equal(
+    await readFile(join(destination, "references", "local.md"), "utf8"),
+    "local notes",
+  );
+
+  const printed = await command(["skill", "--print"], f);
+  assert.equal(printed.code, 0, printed.stderr);
+  assert.equal(
+    printed.stdout,
+    await readFile(join(source, "SKILL.md"), "utf8"),
+  );
+  assert.equal(
+    await readFile(join(destination, "SKILL.md"), "utf8"),
+    printed.stdout,
+  );
 });
 
 void test("CLI reports quota details and resume retries the interrupted leaf", async () => {
