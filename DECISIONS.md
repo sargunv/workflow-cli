@@ -29,12 +29,12 @@ crash.
 ## Keep original schema semantics
 
 Every backend's output is validated against the caller's schema without
-coercion, default injection, or removal of extra fields. Codex uses native
-output only when the schema already meets its strict structural requirements;
-otherwise it falls back to prompted output with local validation. Schemas are
-JSON Schema draft-07 with local references only; root-object and required-subset
-violations and proven contradictions are rejected at call time, but full
-satisfiability of arbitrary schemas is not claimed.
+coercion, default injection, or removal of extra fields. Codex and Muse use
+native output only when the schema already meets their strict structural
+requirements; otherwise they fall back to prompted output with local validation.
+Schemas are JSON Schema draft-07 with local references only; root-object and
+required-subset violations and proven contradictions are rejected at call time,
+but full satisfiability of arbitrary schemas is not claimed.
 
 Schema correction never resends the original task: ACP retains its session and
 receives only validation feedback; CLI drivers get a fresh formatting turn with
@@ -148,3 +148,15 @@ Cursor's terminal result aggregates earlier narration, so its final assistant
 message after tool activity is the return value, falling back to the terminal
 aggregate only when no such message exists. Revisit if the vendor changes
 assistant events to text deltas.
+
+## Muse runs unsandboxed and undelegated by instruction only
+
+Muse's sandbox and approvals are on by default. Write mode disables both, like
+the other harnesses: a worktree's Git metadata lives outside the workspace root,
+and builds may need direct network. Read-only mode keeps the sandbox and
+disables writes, shell, and web tools. Reminder agents are disabled because they
+add tasks, some of which fail on successful runs, without serving the leaf.
+`muse exec` has no flag that removes subagents, so the leaf preamble is the only
+guard against delegation. It also reports no token usage or typed subscription
+refusal, so usage is unavailable and limit failures are ordinary failures.
+Revisit when Muse exposes any of these.

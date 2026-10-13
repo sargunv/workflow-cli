@@ -2,8 +2,8 @@
 
 Run deterministic JavaScript orchestration across coding agent harnesses.
 Scripts fan work out, verify outputs, and replay unchanged calls after edits.
-Claude, Codex, and Cursor use their headless CLIs; OpenCode, Kimi, and Qwen use
-native ACP.
+Claude, Codex, Cursor, and Muse use their headless CLIs; OpenCode, Kimi, and
+Qwen use native ACP.
 
 See [implementation status](docs/STATUS.md) for what is implemented, what is
 deferred, and how to verify it.

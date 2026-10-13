@@ -3,6 +3,7 @@ import type { TransportSettings } from "../config.js";
 import type { BackendName, Driver } from "../types.js";
 import { AcpDriver } from "./acp.js";
 import { CliDriver } from "./cli.js";
+import { MuseDriver } from "./muse.js";
 
 export function createDrivers(
   transport: TransportSettings = defaultTransport,
@@ -14,5 +15,6 @@ export function createDrivers(
     opencode: new AcpDriver("opencode", transport),
     kimi: new AcpDriver("kimi", transport),
     qwen: new AcpDriver("qwen", transport),
+    muse: new MuseDriver(transport),
   };
 }

@@ -4,7 +4,13 @@ import { join } from "node:path";
 
 import { defaultTransport } from "../config.js";
 import type { TransportSettings } from "../config.js";
-import type { Detection, Driver, DriverRequest, ModelInfo } from "../types.js";
+import type {
+  Detection,
+  Driver,
+  DriverRequest,
+  DriverResult,
+  ModelInfo,
+} from "../types.js";
 import { effort, errorText, ProcessOwnershipError } from "../types.js";
 import { CliEventParser, array, object, string } from "./events.js";
 import { capture, findBinary, ManagedProcess } from "./process.js";
@@ -64,7 +70,7 @@ export function cursorModels(output: string): ModelInfo[] {
     );
 }
 
-interface CliInvocation {
+export interface CliInvocation {
   argv: string[];
   stdin: string;
 }
@@ -312,36 +318,61 @@ export class CliDriver implements Driver {
       );
     }
 
-    const temporary = await mkdtemp(join(tmpdir(), "workflow-driver-"));
-    try {
-      const schemaPath = request.schema
-        ? join(temporary, "schema.json")
-        : undefined;
-      if (schemaPath) {
-        await writeFile(schemaPath, JSON.stringify(request.schema));
-      }
+    return runCli(
+      detection.binary,
+      request,
+      this.transport.agentTimeoutMs,
+      new CliEventParser(this.name, request.onEvent),
+      (_temporary, schemaPath) => cliArguments(this.name, request, schemaPath),
+    );
+  }
+}
 
-      const invocation = cliArguments(this.name, request, schemaPath);
-      const parser = new CliEventParser(this.name, request.onEvent);
-      const child = new ManagedProcess(detection.binary, invocation.argv, {
-        cwd: request.cwd,
-        signal: request.signal,
-        timeoutMs: this.transport.agentTimeoutMs,
-        onLine: (line, channel) => parser.line(line, channel),
-      });
+export interface LineParser {
+  line(line: string, channel: "stdout" | "stderr"): void;
+  finish(code: number, error?: string): DriverResult;
+}
 
-      child.end(invocation.stdin);
-      const exit = await child.exited;
-      if (exit.cleanupUncertain) {
-        throw new ProcessOwnershipError(exit.error);
-      }
-
-      return parser.finish(
-        exit.code,
-        exit.error ?? (exit.code !== 0 ? exit.stderr : undefined),
-      );
-    } finally {
-      await rm(temporary, { recursive: true, force: true });
+/** Owns the temporary directory holding schema and prompt files for one
+ * invocation; it is removed only after the process exit is settled. */
+export async function runCli(
+  binary: string,
+  request: DriverRequest,
+  timeoutMs: number | null,
+  parser: LineParser,
+  prepare: (
+    temporary: string,
+    schemaPath?: string,
+  ) => CliInvocation | Promise<CliInvocation>,
+): Promise<DriverResult> {
+  const temporary = await mkdtemp(join(tmpdir(), "workflow-driver-"));
+  try {
+    const schemaPath = request.schema
+      ? join(temporary, "schema.json")
+      : undefined;
+    if (schemaPath) {
+      await writeFile(schemaPath, JSON.stringify(request.schema));
     }
+
+    const invocation = await prepare(temporary, schemaPath);
+    const child = new ManagedProcess(binary, invocation.argv, {
+      cwd: request.cwd,
+      signal: request.signal,
+      timeoutMs,
+      onLine: (line, channel) => parser.line(line, channel),
+    });
+
+    child.end(invocation.stdin);
+    const exit = await child.exited;
+    if (exit.cleanupUncertain) {
+      throw new ProcessOwnershipError(exit.error);
+    }
+
+    return parser.finish(
+      exit.code,
+      exit.error ?? (exit.code !== 0 ? exit.stderr : undefined),
+    );
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
   }
 }
