@@ -5,8 +5,7 @@ harnesses.
 
 ## Project map
 
-- `VISION.md`: product requirements and reference behavior.
-- `BACKENDS.md`: observations from real vendor binaries, dated and versioned.
+- `VISION.md`: product brief and parity goals.
 - `src/runtime/`: script parsing, sandbox, replay, agent lifecycle.
 - `src/drivers/`: vendor-independent interface, CLI and ACP transports.
 - `skills/workflow/`: bundled authoring documentation.

@@ -9,8 +9,8 @@ import { effort, errorText, ProcessOwnershipError } from "../types.js";
 import { CliEventParser, array, object, string } from "./events.js";
 import { capture, findBinary, ManagedProcess } from "./process.js";
 
-// Flags and event shapes verified in BACKENDS.md against Claude 2.1.261,
-// Codex 0.153.3 and Cursor 2026.09.02. Tests use fixtures, never subscriptions.
+// Flags and event shapes verified against Claude 2.1.261, Codex 0.153.3 and
+// Cursor 2026.09.02. Tests use fixtures, never subscriptions.
 export type CliBackend = "claude" | "codex" | "cursor";
 
 const binaries = { claude: "claude", codex: "codex", cursor: "cursor-agent" };

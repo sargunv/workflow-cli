@@ -141,8 +141,7 @@ mise run build
 ```
 
 The committed suite invokes only fixtures and local test programs, never real
-agent subscriptions. See [VISION.md](VISION.md) for the product requirements,
-[BACKENDS.md](BACKENDS.md) for the dated vendor observations, and
+agent subscriptions. See [VISION.md](VISION.md) for the product brief and
 [DECISIONS.md](DECISIONS.md) for implementation choices and limitations.
 
 To deliberately verify a changed backend against a real binary, run `mise run
