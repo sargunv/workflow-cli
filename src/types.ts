@@ -81,13 +81,15 @@ export const metadata = z
 
 export type Metadata = z.infer<typeof metadata>;
 
-export interface Usage {
-  input: number;
+export const usage = z.object({
+  input: z.number(),
   // The part of input that the backend served from its prompt cache.
-  cachedInput?: number;
-  output: number;
-  cost?: number;
-}
+  cachedInput: z.number().optional(),
+  output: z.number(),
+  cost: z.number().optional(),
+});
+
+export type Usage = z.infer<typeof usage>;
 
 export interface DriverEvent {
   type: "activity" | "tool" | "usage" | "usage-limit" | "warning" | "raw";
@@ -165,13 +167,15 @@ export interface Driver {
   run(request: DriverRequest): Promise<DriverResult>;
 }
 
-export interface WorktreeRecord {
-  path: string;
-  branch: string;
-  base: string;
-  kept: boolean;
-  ignoredBaseline?: string;
-}
+export const worktreeRecord = z.object({
+  path: z.string(),
+  branch: z.string(),
+  base: z.string(),
+  kept: z.boolean(),
+  ignoredBaseline: z.string().optional(),
+});
+
+export type WorktreeRecord = z.infer<typeof worktreeRecord>;
 
 export const agentRecord = z.object({
   id: z.number().int(),
@@ -186,24 +190,9 @@ export const agentRecord = z.object({
   cached: z.boolean(),
   startedAt: z.string(),
   durationMs: z.number(),
-  usage: z
-    .object({
-      input: z.number(),
-      cachedInput: z.number().optional(),
-      output: z.number(),
-      cost: z.number().optional(),
-    })
-    .optional(),
+  usage: usage.optional(),
   toolCalls: z.number(),
-  worktree: z
-    .object({
-      path: z.string(),
-      branch: z.string(),
-      base: z.string(),
-      kept: z.boolean(),
-      ignoredBaseline: z.string().optional(),
-    })
-    .optional(),
+  worktree: worktreeRecord.optional(),
 });
 
 export type AgentRecord = z.infer<typeof agentRecord>;

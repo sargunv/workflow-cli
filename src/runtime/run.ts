@@ -26,6 +26,7 @@ import type {
 } from "../types.js";
 import { AgentExecution } from "./agent.js";
 import { startControl } from "./control.js";
+import { agentCap } from "./limits.js";
 import { Replay, readTrace } from "./replay.js";
 import { executeScript } from "./sandbox.js";
 import { compileSchema } from "./schema.js";
@@ -389,8 +390,8 @@ export class WorkflowRun {
       throw new Error("agent prompt must be a string");
     }
 
-    if (this.count >= 1000) {
-      throw new Error("Lifetime agent limit (1000) reached");
+    if (this.count >= agentCap) {
+      throw new Error(`Lifetime agent limit (${agentCap}) reached`);
     }
 
     const options = this.options(value);

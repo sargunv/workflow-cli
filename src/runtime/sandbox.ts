@@ -7,8 +7,11 @@ import type {
   QuickJSRuntime,
 } from "quickjs-emscripten";
 
+import { defaultSandbox } from "../config.js";
+import type { SandboxSettings } from "../config.js";
 import { errorText, jsonValue } from "../types.js";
 import type { Json } from "../types.js";
+import { itemsPerCall, stackBytes } from "./limits.js";
 import type { Script } from "./script.js";
 
 const guestSource = readFileSync(
@@ -49,11 +52,6 @@ export interface SandboxHost {
   holdExecution?: () => () => void;
 }
 
-export interface SandboxLimits {
-  memoryBytes?: number;
-  instructions?: number;
-}
-
 // Each execution owns its VM, handles and job pump. Only JSON strings cross
 // the bridge; no host objects, constructors, module loader or I/O enter the VM.
 class GuestSession {
@@ -71,22 +69,21 @@ class GuestSession {
 
   private encodeResult: QuickJSHandle | undefined;
 
-  private instructions = 0;
+  private interruptChecks = 0;
 
   private interrupted = false;
 
   constructor(
     private runtime: QuickJSRuntime,
     private host: SandboxHost,
-    limits: SandboxLimits,
+    limits: SandboxSettings,
     private releaseExecution: (() => void) | undefined,
   ) {
-    runtime.setMemoryLimit(limits.memoryBytes ?? 64 * 1024 * 1024);
-    runtime.setMaxStackSize(512 * 1024);
+    runtime.setMemoryLimit(limits.memoryBytes);
+    runtime.setMaxStackSize(stackBytes);
     runtime.setInterruptHandler(() => {
       this.interrupted =
-        host.signal.aborted ||
-        ++this.instructions > (limits.instructions ?? 100_000);
+        host.signal.aborted || ++this.interruptChecks > limits.interruptChecks;
 
       return this.interrupted;
     });
@@ -157,7 +154,7 @@ class GuestSession {
       jobs.error.dispose();
       this.fail(guestError(detail));
     } else if (this.interrupted) {
-      this.fail("Script execution interrupted: instruction limit exceeded");
+      this.fail("Script execution interrupted: interrupt check limit exceeded");
     } else if (this.runtime.hasPendingJob()) {
       setImmediate(() => this.pump());
 
@@ -245,6 +242,7 @@ class GuestSession {
     for (const [name, value] of [
       ["__argsJson", args],
       ["__metaJson", script.meta],
+      ["__itemsPerCallJson", itemsPerCall],
     ] as const) {
       const handle = this.vm.newString(JSON.stringify(value));
       this.vm.setProp(this.vm.global, name, handle);
@@ -320,7 +318,7 @@ export async function executeScript(
   script: Script,
   args: Json,
   host: SandboxHost,
-  limits: SandboxLimits = {},
+  limits: SandboxSettings = defaultSandbox,
 ): Promise<Json> {
   // Acquire before loading QuickJS: replay must also wait through VM preparation.
   const release = host.holdExecution?.();

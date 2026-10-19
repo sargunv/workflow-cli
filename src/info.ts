@@ -1,6 +1,7 @@
 import { loadConfig } from "./config.js";
 import { createDrivers } from "./drivers/index.js";
 import { notice } from "./notice.js";
+import { agentCap, itemsPerCall, stackBytes } from "./runtime/limits.js";
 import type { Detection, ModelInfo } from "./types.js";
 
 export async function inspectInstallation(cwd: string) {
@@ -21,8 +22,8 @@ export async function inspectInstallation(cwd: string) {
       "workflow",
     ],
     concurrency: config.concurrency,
-    agentCap: 1000,
-    itemsPerCall: 4096,
+    agentCap,
+    itemsPerCall,
     defaultBackend: config.backend,
     defaults: config.defaults,
     transport: config.transport,
@@ -85,12 +86,12 @@ export function formatInstallation(info: InstallationInfo): string {
     "runtime",
     `  script API       ${runtime.scriptAPI.join(", ")}`,
     `  concurrency      ${runtime.concurrency}`,
-    "  agent cap        1000 per run",
-    "  items per call   4096",
+    `  agent cap        ${runtime.agentCap} per run`,
+    `  items per call   ${runtime.itemsPerCall}`,
     `  default backend  ${runtime.defaultBackend}`,
     `  defaults         ${JSON.stringify(runtime.defaults)}`,
     "  budget           disabled (total: null)",
-    `  sandbox          ${sandbox.memoryBytes} bytes, ${sandbox.instructions} interrupt checks, 512 KiB stack`,
+    `  sandbox          ${sandbox.memoryBytes} bytes, ${sandbox.interruptChecks} interrupt checks, ${stackBytes / 1024} KiB stack`,
     `  schema strategy  ${runtime.schemaStrategy}, ${runtime.schemaRetries} correction attempts`,
     `  agent timeout    ${transport.agentTimeoutMs === null ? "none" : `${transport.agentTimeoutMs}ms per attempt`}`,
     `  discovery timeout ${transport.discoveryTimeoutMs}ms`,

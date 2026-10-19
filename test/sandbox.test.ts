@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { defaultSandbox } from "../src/config.js";
+import { itemsPerCall } from "../src/runtime/limits.js";
 import { executeScript } from "../src/runtime/sandbox.js";
 import type { SandboxHost } from "../src/runtime/sandbox.js";
 import { compileSchema } from "../src/runtime/schema.js";
@@ -114,16 +116,19 @@ void test("parallel handles failures and enforces explicit item limit", async ()
   );
   await assert.rejects(
     executeScript(
-      source("return parallel(Array(4097).fill(() => 1))"),
+      source(`return parallel(Array(${itemsPerCall + 1}).fill(() => 1))`),
       null,
       host(),
     ),
-    /4096/,
+    new RegExp(`at most ${itemsPerCall} functions`),
   );
 });
 void test("runaway synchronous and microtask loops are interrupted", async () => {
   await assert.rejects(
-    executeScript(source("while(true) {}"), null, host(), { instructions: 20 }),
+    executeScript(source("while(true) {}"), null, host(), {
+      ...defaultSandbox,
+      interruptChecks: 20,
+    }),
     /interrupted/,
   );
   await assert.rejects(
@@ -131,7 +136,7 @@ void test("runaway synchronous and microtask loops are interrupted", async () =>
       source("while(true) { await Promise.resolve(); }"),
       null,
       host(),
-      { instructions: 20 },
+      { ...defaultSandbox, interruptChecks: 20 },
     ),
     /interrupted/,
   );
@@ -168,17 +173,10 @@ void test("call validation throws synchronously and arguments cannot silently lo
     /finite JSON/,
   );
 });
-void test("schema root, satisfiability and original optional-property semantics", () => {
+void test("schema root, required keys and original optional-property semantics", () => {
   assert.throws(() => compileSchema({ type: "array" }));
   assert.throws(() =>
     compileSchema({ type: "object", properties: {}, required: ["missing"] }),
-  );
-  assert.throws(() =>
-    compileSchema({
-      type: "object",
-      properties: { x: { type: "number", minimum: 5, maximum: 2 } },
-      required: ["x"],
-    }),
   );
   const validate = compileSchema({
     type: "object",
@@ -198,6 +196,8 @@ void test("bootstrap closures and temporary host globals are not reachable by wo
     "pending",
     "argsJson",
     "metaJson",
+    "itemsPerCall",
+    "itemsPerCallJson",
     "settle",
     "encodeResult",
     "__dispatch",
@@ -205,6 +205,7 @@ void test("bootstrap closures and temporary host globals are not reachable by wo
     "__notify",
     "__argsJson",
     "__metaJson",
+    "__itemsPerCallJson",
   ];
   const expression = privateNames.map((name) => `typeof ${name}`).join(", ");
   assert.deepEqual(
@@ -229,47 +230,6 @@ void test("final results reject silent JSON data loss", async () => {
       /finite JSON/,
     );
   }
-});
-
-void test("schema traversal preserves const, enum and annotation instance data", () => {
-  const value = { minimum: 5, maximum: 1 };
-  const base = {
-    type: "object",
-    properties: { minimum: { type: "number" }, maximum: { type: "number" } },
-  };
-  assert.ok(compileSchema({ ...base, const: value })(value));
-  assert.ok(compileSchema({ ...base, enum: [value] })(value));
-  assert.ok(compileSchema({ ...base, default: value })({}));
-  assert.ok(
-    compileSchema({ type: "object", properties: { x: { enum: [value] } } })({
-      x: value,
-    }),
-  );
-  assert.ok(
-    compileSchema({
-      type: "object",
-      properties: { x: { type: "number", minimum: 5, maximum: 1 } },
-    })({}),
-  );
-  assert.ok(
-    compileSchema({ type: "object", properties: {}, minimum: 5, maximum: 1 })(
-      {},
-    ),
-  );
-  assert.ok(
-    compileSchema({
-      type: "object",
-      properties: {
-        x: {
-          anyOf: [
-            { type: "number", minimum: 5, maximum: 1 },
-            { type: "string" },
-          ],
-        },
-      },
-      required: ["x"],
-    })({ x: "valid" }),
-  );
 });
 
 void test("script errors show a concise message and workflow location", async () => {

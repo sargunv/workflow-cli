@@ -29,7 +29,7 @@ void test("transport and sandbox overrides are bounded and explicit", () => {
   assert.equal(config.transport.agentTimeoutMs, 60_000);
   assert.equal(config.transport.discoveryTimeoutMs, 20_000);
   assert.equal(config.sandbox.memoryBytes, 128 * 1024 * 1024);
-  assert.equal(config.sandbox.instructions, 100_000);
+  assert.equal(config.sandbox.interruptChecks, 100_000);
   assert.throws(() => configSchema.parse({ transport: { agentTimeoutMs: 0 } }));
   assert.throws(() => configSchema.parse({ sandbox: { memoryBytes: -1 } }));
 });
