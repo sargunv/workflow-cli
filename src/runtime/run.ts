@@ -226,7 +226,9 @@ export class WorkflowRun {
   skip(id: number) {
     const controller = this.controllers.get(id);
     if (!controller) {
-      throw new Error(`Agent ${id} is not active or queued`);
+      throw new Error(
+        `Agent ${id} is not active or queued, or is replaying a cached result`,
+      );
     }
 
     controller.abort(new Error("Skipped by user"));
@@ -590,7 +592,6 @@ export class WorkflowRun {
   ): Promise<Json> {
     const id = ++this.count;
     const controller = new AbortController();
-    this.controllers.set(id, controller);
     const signal = AbortSignal.any([this.controller.signal, controller.signal]);
     const phase = options.phase ?? scope.phase;
     const backend = options.backend ?? scope.backend;
@@ -624,6 +625,12 @@ export class WorkflowRun {
       elapsedMs: 0,
       toolCalls: 0,
     });
+    // Cached replays deliver their recorded result, so only live calls can be
+    // skipped. Register before publishing so queued-event handlers can skip.
+    if (!this.replay.replays(key)) {
+      this.controllers.set(id, controller);
+    }
+
     this.event({
       type: "agent-queued",
       id,

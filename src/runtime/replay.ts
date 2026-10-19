@@ -118,6 +118,11 @@ export class Replay {
     };
   }
 
+  /** Whether the next call with this key would deliver a recorded result. */
+  replays(key: string): boolean {
+    return this.expected(key) !== undefined;
+  }
+
   call(
     key: string,
     live: () => Promise<Json>,
@@ -129,13 +134,8 @@ export class Replay {
 
     const id = ++this.nextInvocationId;
     this.write({ type: "start", id, key });
-    const expected = this.previous[this.traceIndex];
-    if (
-      this.replaying &&
-      expected?.type === "start" &&
-      expected.key === key &&
-      this.terminals.has(expected.id)
-    ) {
+    const expected = this.expected(key);
+    if (expected) {
       this.traceIndex++;
       const previousId = expected.id;
       const value = this.terminals.get(previousId) ?? null;
@@ -164,6 +164,16 @@ export class Replay {
 
       return { value, cached: false };
     });
+  }
+
+  private expected(key: string): { id: number } | undefined {
+    const expected = this.previous[this.traceIndex];
+    return this.replaying &&
+      expected?.type === "start" &&
+      expected.key === key &&
+      this.terminals.has(expected.id)
+      ? expected
+      : undefined;
   }
 
   private write(event: TraceEvent) {

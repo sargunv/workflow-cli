@@ -309,7 +309,9 @@ export async function capture(
   }
 
   if (exit.code !== 0 || exit.error) {
-    throw new Error(exit.error ?? exit.stderr ?? `Exited ${exit.code}`);
+    throw new Error(
+      exit.error ?? (exit.stderr.trim() || `Exited ${exit.code}`),
+    );
   }
 
   return output.trim();

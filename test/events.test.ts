@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
 
 import { codexModels, cursorModels, CliDriver } from "../src/drivers/cli.js";
@@ -29,8 +31,9 @@ void test("source-derived quota refusals retain details despite stderr and emit 
       parser.line(line, "stdout");
     }
 
-    const result = parser.finish(1, "backend stderr summary");
+    const result = parser.finish(1, undefined, "backend stderr summary");
     assert.ok(result.usageLimit);
+    assert.equal(result.exitInfo.error, result.usageLimit.message);
     assert.match(result.usageLimit.message, /usage limit/);
     assert.equal(
       events.filter((event) => event.type === "usage-limit").length,
@@ -424,4 +427,47 @@ void test("Claude minimal capability requires explicit API-key authentication", 
       process.env.ANTHROPIC_API_KEY = previous;
     }
   }
+});
+
+void test("failed CLI exits prefer the parsed error, then stderr, then the exit code", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "workflow-events-"));
+  await copyFile(
+    new URL("./helpers/fake-claude.cjs", import.meta.url),
+    join(cwd, "claude"),
+  );
+  await chmod(join(cwd, "claude"), 0o755);
+  const path = process.env.PATH;
+  process.env.PATH = [cwd, dirname(process.execPath)].join(delimiter);
+  try {
+    const driver = new CliDriver("claude");
+    const run = (prompt: string) =>
+      driver.run({
+        prompt,
+        cwd,
+        systemAppend: "test",
+        signal: new AbortController().signal,
+        onEvent: () => {},
+      });
+    assert.deepEqual((await run("fail with result")).exitInfo, {
+      code: 1,
+      error: "parsed failure",
+    });
+    assert.deepEqual((await run("fail with stderr")).exitInfo, {
+      code: 1,
+      error: "stderr failure",
+    });
+  } finally {
+    process.env.PATH = path;
+  }
+
+  const parser = new CliEventParser("claude", () => {});
+  feed(parser, { type: "result", subtype: "success", result: "done" });
+  assert.equal(
+    parser.finish(2, undefined, "\n").exitInfo.error,
+    "Backend exited 2",
+  );
+  assert.equal(
+    parser.finish(2, "Backend timed out", "noise").exitInfo.error,
+    "Backend timed out",
+  );
 });

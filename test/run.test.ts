@@ -679,9 +679,10 @@ void test("stop leaves running and queued calls live on resume while intentional
     return { text: task.prompt, exitInfo: { code: 0 } };
   });
   request.signal = controller.signal;
-  request.source =
+  const parallelSource =
     header +
     "await agent('seed'); return parallel(['a','b','c'].map(item=>()=>agent(item)));";
+  request.source = parallelSource;
   const first = await runWorkflow(request);
   assert.equal(first.status, "cancelled");
   assert.equal(
@@ -729,5 +730,53 @@ void test("stop leaves running and queued calls live on resume while intentional
   });
   assert.equal(skipResume.result, null);
   assert.equal(skipResume.agents[0]?.cached, true);
+  assert.deepEqual(calls, []);
+
+  // Skipping a cached replay is refused rather than silently ignored.
+  const skipErrors: string[] = [];
+  const replayed = await runWorkflow({
+    ...request,
+    source: parallelSource,
+    resume: resumed.runId,
+    onEvent(event) {
+      if (event.type === "agent-queued" && event.id) {
+        const id = event.id;
+        queueMicrotask(() => {
+          try {
+            skip(id);
+          } catch (error) {
+            skipErrors.push(String(error));
+          }
+        });
+      }
+    },
+  });
+  assert.equal(replayed.status, "completed");
+  assert.deepEqual(replayed.result, ["a", "b", "c"]);
+  assert.equal(skipErrors.length, 4);
+  assert.match(skipErrors[0] ?? "", /replaying a cached result/);
+});
+
+void test("live agents can be skipped synchronously when queued", async () => {
+  const calls: string[] = [];
+  const request = await fixture(async (task) => {
+    calls.push(task.prompt);
+    return { text: task.prompt, exitInfo: { code: 0 } };
+  });
+  let skip = (id: number) => {
+    void id;
+  };
+  request.source = header + "return agent('skip when queued');";
+  request.onStarting = (run) => {
+    skip = (id) => run.skip(id);
+  };
+  request.onEvent = (event) => {
+    if (event.type === "agent-queued" && event.id) {
+      skip(event.id);
+    }
+  };
+  const report = await runWorkflow(request);
+  assert.equal(report.status, "completed");
+  assert.equal(report.agents[0]?.status, "skipped");
   assert.deepEqual(calls, []);
 });
