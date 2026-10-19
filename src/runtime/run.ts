@@ -3,16 +3,17 @@ import { writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
+import type { ValidateFunction } from "ajv";
 import { z } from "zod";
 
 import type { Config } from "../config.js";
-import { isErrno } from "../types.js";
 import {
   agentOptions,
   agentRecord,
   backendName,
   canonical,
   errorText,
+  isErrno,
   jsonValue,
 } from "../types.js";
 import type {
@@ -63,6 +64,13 @@ export interface RunRequest {
   onReady?: (run: WorkflowRun) => void | Promise<void>;
 }
 
+interface PreparedAgent {
+  prompt: string;
+  options: AgentOptions;
+  systemAppend: string;
+  validator: ValidateFunction | undefined;
+}
+
 interface Scope {
   path: string;
   script: Script;
@@ -86,10 +94,9 @@ function toJournalValue(record: AgentRecord): Json {
   return jsonValue.parse(JSON.parse(JSON.stringify(record)));
 }
 
-/** Owns root admission, replay and durable records; live leaves own their resources. */
-export class WorkflowRun {
-  readonly store: RunStore;
-
+/** Owns one run: accepting agent calls, replay and durable records. Each live
+ * agent call owns its own resources through AgentExecution. */
+class WorkflowRun {
   private readonly controller = new AbortController();
 
   private readonly semaphore: Semaphore;
@@ -106,6 +113,8 @@ export class WorkflowRun {
 
   private readonly scripts = new Map<string, Script>();
 
+  private readonly validators = new Map<string, ValidateFunction>();
+
   private readonly childResolutions = new Map<string, string>();
 
   private readonly savedChildren = new Map<
@@ -121,22 +130,13 @@ export class WorkflowRun {
 
   private started = performance.now();
 
-  private lastProgressSave = 0;
+  private progressSave: NodeJS.Timeout | undefined;
 
   constructor(
-    private request: RunRequest,
-    script: Script,
+    private readonly request: RunRequest,
+    private readonly script: Script,
+    readonly store: RunStore,
   ) {
-    this.store = new RunStore(
-      request.root,
-      request.source,
-      request.args,
-      script.meta,
-      request.cwd,
-      request.scriptPath,
-      request.resume,
-    );
-    atomicJson(join(this.store.directory, "config.json"), request.config);
     this.semaphore = new Semaphore(request.config.concurrency);
     this.replay = new Replay(
       join(this.store.directory, "replay.jsonl"),
@@ -147,7 +147,7 @@ export class WorkflowRun {
     );
   }
 
-  async run(script: Script): Promise<Report> {
+  async run(): Promise<Report> {
     const abort = () =>
       this.cancel(errorText(this.request.signal.reason ?? "Cancelled"));
     this.request.signal.addEventListener("abort", abort, { once: true });
@@ -163,7 +163,7 @@ export class WorkflowRun {
       await this.request.onStarting?.(this);
 
       this.restoreChildArchives();
-      await this.preflight(script, this.request.scriptPath);
+      await this.preflight(this.script, this.request.scriptPath);
       this.controller.signal.throwIfAborted();
 
       this.event({ type: "run-started", text: this.store.directory });
@@ -172,11 +172,11 @@ export class WorkflowRun {
 
       this.store.report.result = await this.execute(
         {
-          script,
+          script: this.script,
           path: this.request.scriptPath,
           backend: this.request.config.backend,
           child: false,
-          phase: script.meta.phases?.[0]?.title ?? "Workflow",
+          phase: this.script.meta.phases?.[0]?.title ?? "Workflow",
         },
         this.request.args,
       );
@@ -208,6 +208,7 @@ export class WorkflowRun {
         this.store.report.activeAgents = [];
       }
 
+      clearTimeout(this.progressSave);
       this.store.report.status = finalStatus;
       this.store.report.durationMs = performance.now() - this.started;
       try {
@@ -240,10 +241,10 @@ export class WorkflowRun {
     this.controller.abort(new Error(reason));
   }
 
-  async preflight(script: Script, path: string, depth = 0) {
+  private async preflight(script: Script, path: string, nested = false) {
     this.controller.signal.throwIfAborted();
     this.scripts.set(path, script);
-    if (depth) {
+    if (nested) {
       this.archiveChild(script, path);
     }
 
@@ -272,7 +273,7 @@ export class WorkflowRun {
     }
 
     for (const ref of script.children) {
-      if (depth) {
+      if (nested) {
         throw new Error(
           "Only one level of child workflow nesting is supported",
         );
@@ -281,7 +282,7 @@ export class WorkflowRun {
       const childPath = await this.resolveChild(ref, path);
       const child =
         this.scripts.get(childPath) ?? (await this.readChild(childPath));
-      await this.preflight(child, childPath, depth + 1);
+      await this.preflight(child, childPath, true);
     }
   }
 
@@ -343,20 +344,47 @@ export class WorkflowRun {
         active.activity = event.text;
       }
 
-      // Activity is frequent; persist lifecycle changes immediately and throttle previews.
-      if (
-        event.type !== "activity" ||
-        performance.now() - this.lastProgressSave > 250
-      ) {
+      if (event.type === "agent-started") {
         this.persist(() => this.store.save());
-        this.lastProgressSave = performance.now();
+      } else {
+        this.saveProgress();
       }
     }
 
     this.request.onEvent({ ...event, runId: this.store.report.runId });
   }
 
-  private options(value: Json): AgentOptions {
+  // Activity is frequent, so coalesce progress into at most one unsynced
+  // snapshot per interval. Lifecycle changes still save durably.
+  private saveProgress() {
+    this.progressSave ??= setTimeout(() => {
+      this.progressSave = undefined;
+      try {
+        this.store.save(false);
+      } catch (error) {
+        this.fail(error);
+      }
+    }, 250).unref();
+  }
+
+  private admit() {
+    this.controller.signal.throwIfAborted();
+    if (this.stopped) {
+      throw new Error("Workflow no longer accepts agents");
+    }
+
+    if (this.count >= agentCap) {
+      throw new Error(`Lifetime agent limit (${agentCap}) reached`);
+    }
+  }
+
+  // The sandbox validates a call when the script makes it and dispatches it
+  // separately, so this runs twice per call; the validator cache keeps that cheap.
+  private prepare(prompt: Json, value: Json): PreparedAgent {
+    if (typeof prompt !== "string") {
+      throw new Error("agent prompt must be a string");
+    }
+
     const options = agentOptions.parse(value);
     if (options.agentType) {
       throw new Error(
@@ -371,33 +399,30 @@ export class WorkflowRun {
       throw new Error(`Unknown profile: ${options.profile}`);
     }
 
-    const { systemAppend: _system, ...profileOptions } = profile ?? {};
-
-    return agentOptions.parse({
+    const { systemAppend = "", ...profileOptions } = profile ?? {};
+    const resolved = agentOptions.parse({
       ...this.request.config.defaults,
       ...profileOptions,
       ...options,
     });
+
+    return {
+      prompt,
+      options: resolved,
+      systemAppend,
+      validator: resolved.schema ? this.validator(resolved.schema) : undefined,
+    };
   }
 
-  private validate(prompt: Json, value: Json) {
-    this.controller.signal.throwIfAborted();
-    if (this.stopped) {
-      throw new Error("Workflow no longer accepts agents");
+  private validator(schema: Record<string, Json>): ValidateFunction {
+    const key = JSON.stringify(schema);
+    let validator = this.validators.get(key);
+    if (!validator) {
+      validator = compileSchema(schema);
+      this.validators.set(key, validator);
     }
 
-    if (typeof prompt !== "string") {
-      throw new Error("agent prompt must be a string");
-    }
-
-    if (this.count >= agentCap) {
-      throw new Error(`Lifetime agent limit (${agentCap}) reached`);
-    }
-
-    const options = this.options(value);
-    if (options.schema) {
-      compileSchema(options.schema);
-    }
+    return validator;
   }
 
   private detect(backend: BackendName): Promise<Detection> {
@@ -439,8 +464,10 @@ export class WorkflowRun {
       return remember(resolve(dirname(parent), ref));
     }
 
-    for (const directory of [".workflow/workflows", ".claude/workflows"]) {
-      const path = resolve(this.request.cwd, directory, `${ref}.js`);
+    const candidates = [".workflow/workflows", ".claude/workflows"].map(
+      (directory) => resolve(this.request.cwd, directory, `${ref}.js`),
+    );
+    for (const path of candidates) {
       try {
         await access(path);
 
@@ -450,11 +477,10 @@ export class WorkflowRun {
       }
     }
 
-    for (const directory of [".workflow/workflows", ".claude/workflows"]) {
-      const path = resolve(this.request.cwd, directory, `${ref}.js`);
-      if (this.savedChildren.has(path)) {
-        return remember(path);
-      }
+    // A file on disk wins over a copy saved by the resumed run.
+    const saved = candidates.find((path) => this.savedChildren.has(path));
+    if (saved) {
+      return remember(saved);
     }
 
     throw new Error(`Unknown workflow ${ref}`);
@@ -503,16 +529,17 @@ export class WorkflowRun {
       {
         signal: this.controller.signal,
         holdExecution: () => this.replay.holdPreparation(),
-        validateAgent: (prompt, options) => this.validate(prompt, options),
+        validateAgent: (prompt, options) => {
+          this.admit();
+          this.prepare(prompt, options);
+        },
         agent: (prompt, options) => {
-          const task = this.agent(
-            z.string().parse(prompt),
-            this.options(options),
-            scope,
-          ).catch((error) => {
-            this.fail(error);
-            throw error;
-          });
+          const task = this.agent(this.prepare(prompt, options), scope).catch(
+            (error) => {
+              this.fail(error);
+              throw error;
+            },
+          );
 
           return this.trackTask(task);
         },
@@ -535,7 +562,7 @@ export class WorkflowRun {
   private trackTask(task: Promise<Json>): Promise<Json> {
     this.pending.add(task);
     // Observe the derived cleanup promise; callers still receive the original
-    // rejection, and agent infrastructure failures separately fail the root.
+    // rejection, and agent infrastructure failures separately fail the run.
     void task.finally(() => this.pending.delete(task)).catch(() => {});
 
     return task;
@@ -563,7 +590,7 @@ export class WorkflowRun {
       const path = await this.resolveChild(ref, scope.path);
       const script = this.scripts.get(path) ?? (await this.readChild(path));
       if (!this.scripts.has(path)) {
-        await this.preflight(script, path, 1);
+        await this.preflight(script, path, true);
       }
 
       this.controller.signal.throwIfAborted();
@@ -586,11 +613,8 @@ export class WorkflowRun {
     }
   }
 
-  private async agent(
-    prompt: string,
-    options: AgentOptions,
-    scope: Scope,
-  ): Promise<Json> {
+  private async agent(prepared: PreparedAgent, scope: Scope): Promise<Json> {
+    const { prompt, options, systemAppend } = prepared;
     const id = ++this.count;
     const controller = new AbortController();
     const signal = AbortSignal.any([this.controller.signal, controller.signal]);
@@ -611,7 +635,7 @@ export class WorkflowRun {
           timeoutMs: this.request.config.transport.agentTimeoutMs,
           sharedPaths: this.request.config.sharedPaths,
         },
-        systemAppend: this.profileSystemAppend(options),
+        systemAppend,
       }),
     );
 
@@ -643,7 +667,7 @@ export class WorkflowRun {
         key,
         async () =>
           toJournalValue(
-            await this.liveAgent(id, prompt, effective, phase, signal),
+            await this.liveAgent(id, prepared, effective, phase, signal),
           ),
         // Run cancellation leaves an unfinished invocation in the replay trace.
         // An intentional per-agent skip is still a completed, cacheable null.
@@ -690,15 +714,9 @@ export class WorkflowRun {
     }
   }
 
-  private profileSystemAppend(options: AgentOptions): string {
-    return options.profile
-      ? (this.request.config.profiles[options.profile]?.systemAppend ?? "")
-      : "";
-  }
-
   private liveAgent(
     id: number,
-    prompt: string,
+    prepared: PreparedAgent,
     options: AgentOptions & { backend: BackendName },
     phase: string,
     signal: AbortSignal,
@@ -706,15 +724,16 @@ export class WorkflowRun {
     const execution = new AgentExecution(
       {
         id,
-        prompt,
+        prompt: prepared.prompt,
         options,
         phase,
         signal,
         runId: this.store.report.runId,
         cwd: this.request.cwd,
         settings: this.request.config,
-        profileSystemAppend: this.profileSystemAppend(options),
-        rootSignal: this.controller.signal,
+        profileSystemAppend: prepared.systemAppend,
+        validator: prepared.validator,
+        runSignal: this.controller.signal,
       },
       {
         driver: this.request.drivers[options.backend],
@@ -783,6 +802,16 @@ export class WorkflowRun {
 
 export async function runWorkflow(request: RunRequest): Promise<Report> {
   const script = parseScript(request.source);
+  const store = await RunStore.create({
+    root: request.root,
+    source: request.source,
+    args: request.args,
+    config: request.config,
+    meta: script.meta,
+    cwd: request.cwd,
+    scriptPath: request.scriptPath,
+    resume: request.resume,
+  });
 
-  return new WorkflowRun(request, script).run(script);
+  return new WorkflowRun(request, script, store).run();
 }

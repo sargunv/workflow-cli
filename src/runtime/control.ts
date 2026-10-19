@@ -6,8 +6,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { isErrno } from "../types.js";
-import { errorText } from "../types.js";
+import { errorText, isErrno } from "../types.js";
 import { atomicJson, readReport, runPath } from "./store.js";
 import type { Report } from "./store.js";
 
@@ -27,13 +26,44 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("skip"), id: z.number().int().positive() }),
 ]);
 
-export type ControlAction = z.infer<typeof actionSchema>;
+type ControlAction = z.infer<typeof actionSchema>;
 
 const responseSchema = z.object({
   ok: z.boolean(),
   runId: z.string(),
   error: z.string().optional(),
 });
+
+// Each side sends one newline-terminated JSON message, capped so a peer cannot
+// make the other buffer without bound.
+function readMessage(
+  socket: Socket,
+  onMessage: (line: string) => void,
+  onOverflow: () => void,
+) {
+  let input = "";
+  let done = false;
+  socket.setEncoding("utf8");
+  socket.on("data", (chunk: string) => {
+    if (done) {
+      return;
+    }
+
+    input += chunk;
+    if (input.length > maxMessageLength) {
+      done = true;
+      onOverflow();
+
+      return;
+    }
+
+    const end = input.indexOf("\n");
+    if (end !== -1) {
+      done = true;
+      onMessage(input.slice(0, end));
+    }
+  });
+}
 
 interface ControlTarget {
   runId: string;
@@ -52,67 +82,54 @@ export async function startControl(
     socket.once("close", () => sockets.delete(socket));
     socket.on("error", () => {});
     socket.setTimeout(2000, () => socket.destroy());
-    socket.setEncoding("utf8");
-    let input = "";
-    let answered = false;
-    socket.on("data", (chunk: string) => {
-      if (answered) {
-        return;
-      }
+    readMessage(
+      socket,
+      (line) => {
+        let action: ControlAction;
+        try {
+          const request = z
+            .object({
+              token: z.string().length(64),
+              runId: z.literal(target.runId),
+              command: actionSchema,
+            })
+            .strict()
+            .parse(JSON.parse(line));
 
-      input += chunk;
-      if (input.length > maxMessageLength) {
-        socket.destroy();
-
-        return;
-      }
-
-      if (!input.includes("\n")) {
-        return;
-      }
-
-      answered = true;
-      let action: ControlAction;
-      try {
-        const request = z
-          .object({
-            token: z.string().length(64),
-            runId: z.literal(target.runId),
-            command: actionSchema,
-          })
-          .strict()
-          .parse(JSON.parse(input.slice(0, input.indexOf("\n"))));
-
-        if (!timingSafeEqual(Buffer.from(request.token), Buffer.from(token))) {
-          throw new Error("Invalid control credentials");
-        }
-
-        action = request.command;
-        if (action.action === "skip") {
-          target.skip(action.id);
-        }
-      } catch (error) {
-        socket.end(
-          JSON.stringify({
-            ok: false,
-            runId: target.runId,
-            error: errorText(error),
-          }) + "\n",
-        );
-
-        return;
-      }
-
-      // Acknowledge before cancellation closes admission and the control server.
-      socket.end(
-        JSON.stringify({ ok: true, runId: target.runId }) + "\n",
-        () => {
-          if (action.action === "stop") {
-            target.cancel();
+          if (
+            !timingSafeEqual(Buffer.from(request.token), Buffer.from(token))
+          ) {
+            throw new Error("Invalid control credentials");
           }
-        },
-      );
-    });
+
+          action = request.command;
+          if (action.action === "skip") {
+            target.skip(action.id);
+          }
+        } catch (error) {
+          socket.end(
+            JSON.stringify({
+              ok: false,
+              runId: target.runId,
+              error: errorText(error),
+            }) + "\n",
+          );
+
+          return;
+        }
+
+        // Acknowledge before cancellation stops new agents and closes this server.
+        socket.end(
+          JSON.stringify({ ok: true, runId: target.runId }) + "\n",
+          () => {
+            if (action.action === "stop") {
+              target.cancel();
+            }
+          },
+        );
+      },
+      () => socket.destroy(),
+    );
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -162,7 +179,6 @@ export async function controlRun(
 
   return new Promise<void>((resolve, reject) => {
     const socket = createConnection({ host: "127.0.0.1", port: endpoint.port });
-    let input = "";
     let complete = false;
     const finish = (error?: unknown) => {
       if (complete) {
@@ -185,38 +201,28 @@ export async function controlRun(
         ),
       ),
     );
-    socket.setEncoding("utf8");
     socket.on("error", finish);
     socket.on("connect", () =>
       socket.write(
         JSON.stringify({ token: endpoint.token, runId: id, command }) + "\n",
       ),
     );
-    socket.on("data", (chunk: string) => {
-      input += chunk;
-      if (input.length > maxMessageLength) {
-        finish(new Error("Invalid run control response"));
+    readMessage(
+      socket,
+      (line) => {
+        try {
+          const response = responseSchema.parse(JSON.parse(line));
+          if (response.runId !== id || !response.ok) {
+            throw new Error(response.error ?? "Run control identity mismatch");
+          }
 
-        return;
-      }
-
-      if (!input.includes("\n")) {
-        return;
-      }
-
-      try {
-        const response = responseSchema.parse(
-          JSON.parse(input.slice(0, input.indexOf("\n"))),
-        );
-        if (response.runId !== id || !response.ok) {
-          throw new Error(response.error ?? "Run control identity mismatch");
+          finish();
+        } catch (error) {
+          finish(error);
         }
-
-        finish();
-      } catch (error) {
-        finish(error);
-      }
-    });
+      },
+      () => finish(new Error("Invalid run control response")),
+    );
     socket.on("end", () => {
       if (!complete) {
         finish(

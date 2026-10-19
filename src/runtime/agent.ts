@@ -18,7 +18,6 @@ import type {
 import type { RunEvent } from "./run.js";
 import {
   codexNativeCompatible,
-  compileSchema,
   parseStructured,
   schemaError,
 } from "./schema.js";
@@ -37,8 +36,9 @@ interface AgentInput {
   cwd: string;
   settings: Pick<Config, "sharedPaths" | "schemaStrategy" | "schemaRetries">;
   profileSystemAppend: string;
+  validator: ValidateFunction | undefined;
   signal: AbortSignal;
-  rootSignal: AbortSignal;
+  runSignal: AbortSignal;
 }
 
 interface AgentServices {
@@ -51,8 +51,9 @@ interface AgentServices {
   interruptRun: (limit: UsageLimit) => void;
 }
 
-/** Owns one live leaf's resources. The root owns admission, replay and journaling.
- * Transcript and event callbacks retain the root's fatal persistence semantics. */
+/** Runs one live agent call and owns its slot, worktree and correction session.
+ * WorkflowRun decides which calls run, replays cached results and journals
+ * outcomes; a failed transcript or event write still fails the whole run. */
 export class AgentExecution {
   private readonly record: AgentRecord;
 
@@ -78,7 +79,7 @@ export class AgentExecution {
       kind: "agent",
       prompt: input.prompt,
       options: input.options,
-      // The root supplies replay identity and current-call metadata after delivery.
+      // WorkflowRun supplies replay identity and current-call metadata after delivery.
       key: "",
       phase: input.phase,
       status: "errored",
@@ -252,8 +253,7 @@ export class AgentExecution {
   }
 
   private async runTurns(detection: Detection) {
-    const { options, signal, settings } = this.input;
-    const validate = options.schema ? compileSchema(options.schema) : undefined;
+    const { options, signal, settings, validator: validate } = this.input;
     const native = this.nativeOutput(detection);
     const cwd = this.worktree?.path ?? this.input.cwd;
     const initialRequest: DriverRequest = {
@@ -468,7 +468,7 @@ export class AgentExecution {
     }
 
     this.record.reason = errorText(error);
-    if (this.input.rootSignal.aborted && !this.cleanupUncertain) {
+    if (this.input.runSignal.aborted && !this.cleanupUncertain) {
       this.record.reason = `Run cancelled: ${this.record.reason}`;
     }
 

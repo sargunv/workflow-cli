@@ -14,9 +14,8 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import type { SharedPath } from "../config.js";
 import { capture } from "../drivers/process.js";
-import { isErrno } from "../types.js";
+import { errorText, isErrno } from "../types.js";
 import type { WorktreeRecord } from "../types.js";
-import { errorText } from "../types.js";
 
 export class WorktreeSetupError extends Error {
   constructor(

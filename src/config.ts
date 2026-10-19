@@ -4,10 +4,9 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { isErrno } from "./types.js";
-import { agentOptions, backendName } from "./types.js";
+import { agentOptions, backendName, isErrno } from "./types.js";
 
-export const transportSchema = z
+const transportSchema = z
   .object({
     agentTimeoutMs: z
       .number()
@@ -25,7 +24,7 @@ export type TransportSettings = z.infer<typeof transportSchema>;
 
 export const defaultTransport = transportSchema.parse({});
 
-export const sandboxSchema = z
+const sandboxSchema = z
   .object({
     memoryBytes: z
       .number()
@@ -48,7 +47,7 @@ export type SandboxSettings = z.infer<typeof sandboxSchema>;
 
 export const defaultSandbox = sandboxSchema.parse({});
 
-export const sharedPath = z.object({
+const sharedPath = z.object({
   path: z.string(),
   mode: z.enum(["copy", "symlink"]),
 });

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import { configSchema } from "../src/config.js";
 import { agentTable, prepareReport, formatReport } from "../src/output.js";
 import { Progress } from "../src/progress.js";
 import type { ProgressSurface } from "../src/progress.js";
@@ -77,14 +78,15 @@ void test("completed elapsed time freezes and terminal control bytes are neutral
 });
 void test("summary tables omit prompts and results; large Unicode results spill intact", async () => {
   const root = await mkdtemp(join(tmpdir(), "workflow-output-"));
-  const store = new RunStore(
+  const store = await RunStore.create({
     root,
-    "source",
-    null,
-    { name: "large", description: "large result" },
-    root,
-    "script.js",
-  );
+    source: "source",
+    args: null,
+    config: configSchema.parse({}),
+    meta: { name: "large", description: "large result" },
+    cwd: root,
+    scriptPath: "script.js",
+  });
   store.report.status = "completed";
   store.report.result = "😀".repeat(10_000);
   store.agent({
@@ -122,14 +124,15 @@ void test("summary tables omit prompts and results; large Unicode results spill 
 
 async function usageSummary(usages: Usage[]) {
   const root = await mkdtemp(join(tmpdir(), "workflow-output-usage-"));
-  const store = new RunStore(
+  const store = await RunStore.create({
     root,
-    "source",
-    null,
-    { name: "usage", description: "usage" },
-    root,
-    "script.js",
-  );
+    source: "source",
+    args: null,
+    config: configSchema.parse({}),
+    meta: { name: "usage", description: "usage" },
+    cwd: root,
+    scriptPath: "script.js",
+  });
   store.report.status = "completed";
   for (const [index, usage] of usages.entries()) {
     const id = index + 1;
@@ -178,14 +181,15 @@ void test("the summary omits the cached share when an agent did not report it", 
 
 void test("human result text neutralizes terminal sequences while preserving line breaks and JSON data", async () => {
   const root = await mkdtemp(join(tmpdir(), "workflow-output-controls-"));
-  const store = new RunStore(
+  const store = await RunStore.create({
     root,
-    "source",
-    null,
-    { name: "controls", description: "controls" },
-    root,
-    "script.js",
-  );
+    source: "source",
+    args: null,
+    config: configSchema.parse({}),
+    meta: { name: "controls", description: "controls" },
+    cwd: root,
+    scriptPath: "script.js",
+  });
   store.report.status = "completed";
   store.report.result = "first\n\tsecond\u001b]52;c;payload\u0007";
   const human = formatReport(store.report, prepareReport(store.report));
