@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 
 import { parse } from "acorn";
-import type { Expression, SpreadElement } from "acorn";
+import type { Expression, Property, SpreadElement } from "acorn";
 import { simple } from "acorn-walk";
 
 import { metadata } from "../types.js";
@@ -14,6 +14,16 @@ export interface Script {
   backends: string[];
   children: Json[];
   profiles: string[];
+}
+
+function propertyKey(property: Property): string | undefined {
+  if (property.key.type === "Identifier") {
+    return property.key.name;
+  }
+
+  return property.key.type === "Literal"
+    ? String(property.key.value)
+    : undefined;
 }
 
 function literal(node: Expression): Json {
@@ -62,14 +72,8 @@ function literal(node: Expression): Json {
           throw new Error("meta must contain only literal properties");
         }
 
-        let key: string | null = null;
-        if (property.key.type === "Identifier") {
-          key = property.key.name;
-        } else if (property.key.type === "Literal") {
-          key = String(property.key.value);
-        }
-
-        if (key === null || Object.hasOwn(result, key)) {
+        const key = propertyKey(property);
+        if (key === undefined || Object.hasOwn(result, key)) {
           throw new Error("Invalid or duplicate meta property");
         }
 
@@ -131,13 +135,7 @@ function staticStringOptions(
       continue;
     }
 
-    let key: string | undefined;
-    if (property.key.type === "Identifier") {
-      key = property.key.name;
-    } else if (property.key.type === "Literal") {
-      key = String(property.key.value);
-    }
-
+    const key = propertyKey(property);
     if (key !== undefined) {
       entries.push([key, property.value.value]);
     }

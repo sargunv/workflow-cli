@@ -119,18 +119,33 @@
   install("phase", (title) => notify(encode("phase"), encode(title)));
   install("log", (text) => notify(encode("log"), encode(text)));
 
+  // A failed item still yields the documented null, but report why so a bug in
+  // the script is not silently swallowed.
+  function reportFailure(helper, index, error) {
+    try {
+      const reason = error instanceof Error ? error.message : String(error);
+      notify(
+        encode("warning"),
+        encode(`${helper} item ${index} returned null: ${reason}`),
+      );
+    } catch {
+      // Reporting must never change the result.
+    }
+  }
+
   install("parallel", async (thunks) => {
-    if (!Array.isArray(thunks) || thunks.length > itemsPerCall) {
+    if (!isArray(thunks) || thunks.length > itemsPerCall) {
       throw new Error(
         `parallel requires an array of at most ${itemsPerCall} functions`,
       );
     }
 
     return Promise.all(
-      thunks.map(async (thunk) => {
+      thunks.map(async (thunk, index) => {
         try {
           return await thunk();
-        } catch {
+        } catch (error) {
+          reportFailure("parallel", index, error);
           return null;
         }
       }),
@@ -138,7 +153,7 @@
   });
 
   install("pipeline", async (items, ...stages) => {
-    if (!Array.isArray(items) || items.length > itemsPerCall) {
+    if (!isArray(items) || items.length > itemsPerCall) {
       throw new Error(
         `pipeline requires an array of at most ${itemsPerCall} items`,
       );
@@ -150,7 +165,8 @@
         for (const stage of stages) {
           try {
             result = await stage(result, item, index);
-          } catch {
+          } catch (error) {
+            reportFailure("pipeline", index, error);
             return null;
           }
         }

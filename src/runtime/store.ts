@@ -1,15 +1,16 @@
 import { randomBytes } from "node:crypto";
 import {
   appendFileSync,
-  mkdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
 } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { z } from "zod";
 
+import type { Config } from "../config.js";
 import {
   agentOptions,
   agentRecord,
@@ -20,7 +21,7 @@ import {
 } from "../types.js";
 import type { AgentRecord, Json, Metadata } from "../types.js";
 
-export const activeAgentSchema = z.object({
+const activeAgentSchema = z.object({
   id: z.number().int().positive(),
   prompt: z.string(),
   options: agentOptions,
@@ -35,7 +36,7 @@ export const activeAgentSchema = z.object({
 
 export type ActiveAgent = z.infer<typeof activeAgentSchema>;
 
-export const reportSchema = z.object({
+const reportSchema = z.object({
   version: z.literal(1),
   runId: z.string(),
   directory: z.string(),
@@ -66,10 +67,10 @@ export const reportSchema = z.object({
 
 export type Report = z.infer<typeof reportSchema>;
 
-export function atomicJson(path: string, value: unknown) {
+export function atomicJson(path: string, value: unknown, durable = true) {
   const temporary = path + ".tmp";
   writeFileSync(temporary, JSON.stringify(value, null, 2) + "\n", {
-    flush: true,
+    flush: durable,
     mode: 0o600,
   });
   renameSync(temporary, path);
@@ -89,38 +90,44 @@ export function readReport(root: string, id: string): Report {
   );
 }
 
+interface RunStoreOptions {
+  root: string;
+  source: string;
+  args: Json;
+  config: Config;
+  meta: Metadata;
+  cwd: string;
+  scriptPath: string;
+  resume?: string;
+}
+
 /** Journals are append-and-flush evidence; report.json is an atomic snapshot.
- * invocations.jsonl records admission, including calls with no terminal result.
- * journal.jsonl records only completed agents; transcripts retain driver events. */
+ * invocations.jsonl records every accepted agent call, including calls with no
+ * terminal result. journal.jsonl records only completed agents; transcripts
+ * retain driver events. */
 export class RunStore {
-  readonly directory: string;
+  private constructor(
+    readonly directory: string,
+    readonly report: Report,
+  ) {}
 
-  readonly report: Report;
-
-  constructor(
-    root: string,
-    source: string,
-    args: Json,
-    meta: Metadata,
-    cwd: string,
-    scriptPath: string,
-    resume?: string,
-  ) {
+  static async create(options: RunStoreOptions): Promise<RunStore> {
     const runId = `wf_${randomBytes(6).toString("hex")}`;
-    this.directory = runPath(root, runId);
-    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    mkdirSync(join(this.directory, "transcripts"), { mode: 0o700 });
-    writeFileSync(join(this.directory, "script.js"), source);
-    atomicJson(join(this.directory, "args.json"), args);
-    writeFileSync(join(this.directory, "journal.jsonl"), "");
-    writeFileSync(join(this.directory, "replay.jsonl"), "");
-    this.report = {
+    const directory = runPath(options.root, runId);
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    await mkdir(join(directory, "transcripts"), { mode: 0o700 });
+    await writeFile(join(directory, "script.js"), options.source);
+    await writeFile(join(directory, "journal.jsonl"), "");
+    await writeFile(join(directory, "replay.jsonl"), "");
+    atomicJson(join(directory, "args.json"), options.args);
+    atomicJson(join(directory, "config.json"), options.config);
+    const store = new RunStore(directory, {
       version: 1,
       runId,
-      directory: this.directory,
-      scriptPath,
-      cwd,
-      meta,
+      directory,
+      scriptPath: options.scriptPath,
+      cwd: options.cwd,
+      meta: options.meta,
       status: "running",
       pid: process.pid,
       startedAt: new Date().toISOString(),
@@ -129,13 +136,16 @@ export class RunStore {
       activeAgents: [],
       logs: [],
       result: null,
-      resume,
-    };
-    this.save();
+      resume: options.resume,
+    });
+    store.save();
+
+    return store;
   }
 
-  save() {
-    atomicJson(join(this.directory, "report.json"), this.report);
+  /** Progress-only snapshots skip fsync; the next lifecycle save makes them durable. */
+  save(durable = true) {
+    atomicJson(join(this.directory, "report.json"), this.report, durable);
   }
 
   agent(record: AgentRecord) {

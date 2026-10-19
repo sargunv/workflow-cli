@@ -1,7 +1,8 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { Report } from "./runtime/store.js";
+import type { ActiveAgent, Report } from "./runtime/store.js";
+import type { AgentRecord } from "./types.js";
 
 export function terminalText(text: string): string {
   return Array.from(text, (char) => {
@@ -120,34 +121,42 @@ export function prepareReport(report: Report) {
   };
 }
 
+function agentRow(
+  agent: AgentRecord | ActiveAgent,
+  cached: boolean,
+  elapsedMs: number,
+  reason: string | undefined,
+  worktree?: AgentRecord["worktree"],
+) {
+  return {
+    id: agent.id,
+    phase: agent.phase,
+    label: agent.options.label ?? `Agent ${agent.id}`,
+    backend: agent.options.backend,
+    model: agent.options.model,
+    status: agent.status,
+    cached,
+    elapsedMs: Math.round(elapsedMs),
+    toolCalls: agent.toolCalls,
+    reason,
+    worktree,
+  };
+}
+
 export function agentTable(report: Report) {
   return [
-    ...report.agents.map((agent) => ({
-      id: agent.id,
-      phase: agent.phase,
-      label: agent.options.label ?? `Agent ${agent.id}`,
-      backend: agent.options.backend,
-      model: agent.options.model,
-      status: agent.status,
-      cached: agent.cached,
-      elapsedMs: Math.round(agent.durationMs),
-      toolCalls: agent.toolCalls,
-      reason: agent.reason,
-      worktree: agent.worktree,
-    })),
-    ...report.activeAgents.map((agent) => ({
-      id: agent.id,
-      phase: agent.phase,
-      label: agent.options.label ?? `Agent ${agent.id}`,
-      backend: agent.options.backend,
-      model: agent.options.model,
-      status: agent.status,
-      cached: false,
-      elapsedMs: Math.round(agent.elapsedMs),
-      toolCalls: agent.toolCalls,
-      reason: agent.activity,
-      worktree: undefined,
-    })),
+    ...report.agents.map((agent) =>
+      agentRow(
+        agent,
+        agent.cached,
+        agent.durationMs,
+        agent.reason,
+        agent.worktree,
+      ),
+    ),
+    ...report.activeAgents.map((agent) =>
+      agentRow(agent, false, agent.elapsedMs, agent.activity),
+    ),
   ].sort((a, b) => a.id - b.id);
 }
 

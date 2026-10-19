@@ -18,7 +18,7 @@ const traceEvent = z.discriminatedUnion("type", [
   }),
 ]);
 
-export type TraceEvent = z.infer<typeof traceEvent>;
+type TraceEvent = z.infer<typeof traceEvent>;
 
 export function readTrace(path: string): TraceEvent[] {
   const text = readFileSync(path, "utf8");

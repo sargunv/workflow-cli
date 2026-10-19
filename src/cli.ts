@@ -7,6 +7,7 @@ import { Command } from "commander";
 import { z } from "zod";
 
 import { launchBackground, readLaunch, notifyLauncher } from "./background.js";
+import type { Launch } from "./background.js";
 import { loadConfig } from "./config.js";
 import { createDrivers } from "./drivers/index.js";
 import { inspectInstallation, formatInstallation } from "./info.js";
@@ -19,39 +20,32 @@ import { readScriptFile } from "./runtime/script.js";
 import { runPath } from "./runtime/store.js";
 import type { Report } from "./runtime/store.js";
 import { readTranscript } from "./runtime/transcript.js";
-import { isErrno } from "./types.js";
-import { backendName, errorText, jsonValue } from "./types.js";
+import { backendName, errorText, isErrno, jsonValue } from "./types.js";
 import { version } from "./version.js";
 import { waitForRun } from "./wait.js";
 
-interface InspectOptions {
+interface StorageOptions {
   runsDir?: string;
   cwd?: string;
   json?: boolean;
 }
 
-interface RunOptions {
+interface RunOptions extends StorageOptions {
   model?: string;
   args?: string;
   argsFile?: string;
   backend?: string;
   concurrency?: string;
   resume?: string;
-  json?: boolean;
-  runsDir?: string;
-  cwd?: string;
   background?: boolean;
 }
 
-interface ShowOptions {
-  json?: boolean;
+interface ShowOptions extends StorageOptions {
   agent?: string;
   transcript?: boolean;
-  runsDir?: string;
-  cwd?: string;
 }
 
-function storageRoot(options: InspectOptions): string {
+function storageRoot(options: StorageOptions): string {
   return resolve(
     options.runsDir ??
       join(resolve(options.cwd ?? process.cwd()), ".workflow/runs"),
@@ -147,7 +141,49 @@ process.stdout.on("error", (error: NodeJS.ErrnoException) => {
   }
 });
 
+/** Prints the report of signal-cancellable work and sets the exit code from its status. */
+async function withCancellableProgress(
+  json: boolean,
+  {
+    signalReason,
+    cancelledExitCode = 1,
+  }: { signalReason: string; cancelledExitCode?: number },
+  work: (signal: AbortSignal, progress: Progress) => Promise<Report>,
+) {
+  const controller = new AbortController();
+  const cancel = () => controller.abort(new Error(signalReason));
+  process.on("SIGINT", cancel);
+  process.on("SIGTERM", cancel);
+  const progress = new Progress(json);
+  let report: Report;
+  try {
+    report = await work(
+      AbortSignal.any([controller.signal, outputClosed.signal]),
+      progress,
+    );
+  } finally {
+    progress.close();
+    process.removeListener("SIGINT", cancel);
+    process.removeListener("SIGTERM", cancel);
+  }
+
+  printReport(report, json);
+  if (report.status !== "completed" && !outputClosed.signal.aborted) {
+    process.exitCode = report.status === "cancelled" ? cancelledExitCode : 1;
+  }
+}
+
 const program = new Command();
+
+function storageCommand(
+  name: string,
+  cwd = "Working directory containing run storage",
+): Command {
+  return program
+    .command(name)
+    .option("--runs-dir <path>", "Run storage directory")
+    .option("--cwd <directory>", cwd);
+}
 
 program
   .name("workflow")
@@ -170,8 +206,7 @@ program
     process.stdout.write(output);
   });
 
-program
-  .command("run")
+storageCommand("run", "Agent working directory")
   .description("Run a JavaScript workflow from a file, or - for stdin")
   .argument("<script>")
   .option("--background", "Return a run ID and continue in the background")
@@ -179,11 +214,9 @@ program
   .option("--args-file <path>", "Read JSON input from a file")
   .option("--backend <name>", "Default backend")
   .option("--model <id>", "Default model (from workflow info)")
-  .option("--concurrency <count>", "Maximum concurrent leaf agents (1–16)")
+  .option("--concurrency <count>", "Maximum concurrent agents (1–16)")
   .option("--resume <run-id>", "Replay unchanged calls from a stopped run")
   .option("--json", "Stream NDJSON events and a final report")
-  .option("--runs-dir <path>", "Run storage directory")
-  .option("--cwd <directory>", "Agent working directory")
   .action(async (path: string, options: RunOptions) => {
     if (options.args !== undefined && options.argsFile !== undefined) {
       throw new Error("Use only one of --args and --args-file");
@@ -199,16 +232,20 @@ program
       process.stderr.write(notice + "\n");
     }
 
+    const launch: Launch = {
+      source,
+      scriptPath: path === "-" ? join(cwd, "stdin.js") : resolve(path),
+      args,
+      cwd,
+      root,
+      config,
+      resume: options.resume,
+    };
     if (options.background) {
-      const reply = await launchBackground(fileURLToPath(import.meta.url), {
-        source,
-        scriptPath: path === "-" ? join(cwd, "stdin.js") : resolve(path),
-        args,
-        cwd,
-        root,
-        config,
-        resume: options.resume,
-      });
+      const reply = await launchBackground(
+        fileURLToPath(import.meta.url),
+        launch,
+      );
 
       process.stdout.write(
         options.json
@@ -222,47 +259,25 @@ program
       return;
     }
 
-    const progress = new Progress(!!options.json);
-    const controller = new AbortController();
-    const cancel = () => controller.abort(new Error("Cancelled by signal"));
-    process.on("SIGINT", cancel);
-    process.on("SIGTERM", cancel);
-
-    try {
-      const report = await runWorkflow({
-        source,
-        scriptPath: path === "-" ? join(cwd, "stdin.js") : resolve(path),
-        args,
-        cwd,
-        root,
-        config,
-        drivers: createDrivers(config.transport),
-        resume: options.resume,
-        signal: AbortSignal.any([controller.signal, outputClosed.signal]),
-        onEvent: (event) => progress.event(event),
-      });
-
-      progress.close();
-      printReport(report, !!options.json);
-      if (report.status !== "completed" && !outputClosed.signal.aborted) {
-        process.exitCode = report.status === "cancelled" ? 130 : 1;
-      }
-    } finally {
-      progress.close();
-      process.removeListener("SIGINT", cancel);
-      process.removeListener("SIGTERM", cancel);
-    }
+    await withCancellableProgress(
+      !!options.json,
+      { signalReason: "Cancelled by signal", cancelledExitCode: 130 },
+      (signal, progress) =>
+        runWorkflow({
+          ...launch,
+          drivers: createDrivers(config.transport),
+          signal,
+          onEvent: (event) => progress.event(event),
+        }),
+    );
   });
 
-program
-  .command("show")
+storageCommand("show")
   .description("Inspect a run or an individual agent")
   .argument("<run-id>")
   .option("--json", "Print JSON")
   .option("--agent <id>", "Inspect one agent")
   .option("--transcript", "Print the selected agent transcript")
-  .option("--runs-dir <path>", "Run storage directory")
-  .option("--cwd <directory>", "Working directory containing run storage")
   .action(async (id: string, options: ShowOptions) => {
     const root = storageRoot(options);
     const report = await inspectReport(root, id);
@@ -303,25 +318,19 @@ program
     }
   });
 
-program
-  .command("journal")
+storageCommand("journal")
   .description("Print the raw agent result journal")
   .argument("<run-id>")
-  .option("--runs-dir <path>", "Run storage directory")
-  .option("--cwd <directory>", "Working directory containing run storage")
-  .action(async (id: string, options: InspectOptions) => {
+  .action(async (id: string, options: StorageOptions) => {
     const path = join(runPath(storageRoot(options), id), "journal.jsonl");
     process.stdout.write(await readFile(path, "utf8"));
   });
 
-program
-  .command("stop")
+storageCommand("stop")
   .description("Cancel a run and wait for its workers to finish shutting down")
   .argument("<run-id>")
-  .option("--runs-dir <path>", "Run storage directory")
-  .option("--cwd <directory>", "Working directory containing run storage")
   .option("--json", "Print the terminal report as JSON")
-  .action(async (id: string, options: InspectOptions) => {
+  .action(async (id: string, options: StorageOptions) => {
     const root = storageRoot(options);
     const before = await inspectReport(root, id);
     if (before.status === "running") {
@@ -332,15 +341,12 @@ program
     printReport(report, !!options.json);
   });
 
-program
-  .command("skip")
+storageCommand("skip")
   .description("Skip one queued or running agent")
   .argument("<run-id>")
   .argument("<agent-id>")
-  .option("--runs-dir <path>", "Run storage directory")
-  .option("--cwd <directory>", "Working directory containing run storage")
   .option("--json", "Print JSON acknowledgement")
-  .action(async (id: string, agent: string, options: InspectOptions) => {
+  .action(async (id: string, agent: string, options: StorageOptions) => {
     const index = Number(agent);
     if (!Number.isInteger(index) || index < 1) {
       throw new Error("Agent ID must be a positive integer");
@@ -355,40 +361,22 @@ program
     );
   });
 
-program
-  .command("wait")
+storageCommand("wait")
   .description("Wait for a background run and print its result")
   .argument("<run-id>")
-  .option("--runs-dir <path>", "Run storage directory")
-  .option("--cwd <directory>", "Working directory containing run storage")
   .option("--json", "Stream progress and print the terminal report as JSON")
-  .action(async (id: string, options: InspectOptions) => {
-    const controller = new AbortController();
-    const interrupt = () =>
-      controller.abort(
-        new Error("Stopped waiting; the workflow continues in the background"),
-      );
-    process.on("SIGINT", interrupt);
-    process.on("SIGTERM", interrupt);
-    const progress = new Progress(!!options.json);
-    try {
-      const report = await waitForRun(
-        storageRoot(options),
-        id,
-        AbortSignal.any([controller.signal, outputClosed.signal]),
-        (report) => progress.observe(report),
-      );
-
-      progress.close();
-      printReport(report, !!options.json);
-      if (report.status !== "completed" && !outputClosed.signal.aborted) {
-        process.exitCode = 1;
-      }
-    } finally {
-      progress.close();
-      process.removeListener("SIGINT", interrupt);
-      process.removeListener("SIGTERM", interrupt);
-    }
+  .action(async (id: string, options: StorageOptions) => {
+    await withCancellableProgress(
+      !!options.json,
+      {
+        signalReason:
+          "Stopped waiting; the workflow continues in the background",
+      },
+      (signal, progress) =>
+        waitForRun(storageRoot(options), id, signal, (report) =>
+          progress.observe(report),
+        ),
+    );
   });
 
 program
@@ -399,7 +387,7 @@ program
       throw new Error("Internal worker requires a background launcher");
     }
 
-    const controller = new AbortController();
+    const startup = new AbortController();
     const cancelStartup = (message: unknown) => {
       if (
         typeof message === "object" &&
@@ -407,53 +395,49 @@ program
         "type" in message &&
         message.type === "cancel-startup"
       ) {
-        controller.abort(new Error("Background startup cancelled by launcher"));
+        startup.abort(new Error("Background startup cancelled by launcher"));
       }
     };
 
     process.on("message", cancelStartup);
-    const launch = await readLaunch(directory);
-    const cancel = () => controller.abort(new Error("Cancelled by signal"));
-    process.on("SIGINT", cancel);
-    process.on("SIGTERM", cancel);
-    const progress = new Progress(true);
-    let acknowledged = false;
     try {
-      const report = await runWorkflow({
-        ...launch,
-        drivers: createDrivers(launch.config.transport),
-        signal: AbortSignal.any([controller.signal, outputClosed.signal]),
-        onEvent: (event) => progress.event(event),
-        onStarting: (run) =>
-          notifyLauncher({
-            type: "starting",
-            ...launchIdentity(run.store.report),
-          }),
-        onReady: async (run) => {
-          await notifyLauncher({
-            type: "ready",
-            ...launchIdentity(run.store.report),
+      const launch = await readLaunch(directory);
+      let acknowledged = false;
+      await withCancellableProgress(
+        true,
+        { signalReason: "Cancelled by signal" },
+        async (signal, progress) => {
+          const report = await runWorkflow({
+            ...launch,
+            drivers: createDrivers(launch.config.transport),
+            signal: AbortSignal.any([signal, startup.signal]),
+            onEvent: (event) => progress.event(event),
+            onStarting: (run) =>
+              notifyLauncher({
+                type: "starting",
+                ...launchIdentity(run.store.report),
+              }),
+            onReady: async (run) => {
+              await notifyLauncher({
+                type: "ready",
+                ...launchIdentity(run.store.report),
+              });
+              acknowledged = true;
+            },
           });
-          acknowledged = true;
+
+          if (!acknowledged) {
+            await notifyLauncher({
+              type: "failed",
+              ...launchIdentity(report),
+              error: report.error ?? "Workflow launch failed",
+            });
+          }
+
+          return report;
         },
-      });
-
-      if (!acknowledged) {
-        await notifyLauncher({
-          type: "failed",
-          ...launchIdentity(report),
-          error: report.error ?? "Workflow launch failed",
-        });
-      }
-
-      printReport(report, true);
-      if (report.status !== "completed" && !outputClosed.signal.aborted) {
-        process.exitCode = 1;
-      }
+      );
     } finally {
-      progress.close();
-      process.removeListener("SIGINT", cancel);
-      process.removeListener("SIGTERM", cancel);
       process.removeListener("message", cancelStartup);
       if (process.connected) {
         process.disconnect?.();

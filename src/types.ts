@@ -32,7 +32,7 @@ export type BackendName = z.infer<typeof backendName>;
 
 export const effort = z.enum(["low", "medium", "high", "xhigh", "max"]);
 
-export const toolPolicy = z.union([
+const toolPolicy = z.union([
   z.literal("read-only"),
   z
     .object({
@@ -81,7 +81,7 @@ export const metadata = z
 
 export type Metadata = z.infer<typeof metadata>;
 
-export const usage = z.object({
+const usage = z.object({
   input: z.number(),
   // The part of input that the backend served from its prompt cache.
   cachedInput: z.number().optional(),
@@ -167,7 +167,7 @@ export interface Driver {
   run(request: DriverRequest): Promise<DriverResult>;
 }
 
-export const worktreeRecord = z.object({
+const worktreeRecord = z.object({
   path: z.string(),
   branch: z.string(),
   base: z.string(),

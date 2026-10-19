@@ -60,16 +60,16 @@ and authority preamble, cwd, and its own harness's normal instruction files. It
 sees no parent conversation, script state, args, or sibling results unless the
 prompt includes them. Do not ask leaves to re-delegate.
 
-| Global                               | Behavior                                                                                                                                                                   |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent(prompt, opts?)`               | Returns final text, a validated object with `schema`, or `null` on failure/skip. Prompt must contain the entire task.                                                      |
-| `pipeline(items, ...stages)`         | Each item advances immediately through its stages. Stage receives `(previous, originalItem, index)`. A throw makes that item's result null and skips its remaining stages. |
-| `parallel(thunks)`                   | Runs zero-argument functions concurrently. Waits for all; a failed thunk becomes null.                                                                                     |
-| `phase(title)`                       | Sets the phase for subsequent agents. Prefer per-agent `phase` in concurrent code to avoid races.                                                                          |
-| `log(message)`                       | Emits a narrator line and stores it with the report.                                                                                                                       |
-| `args`                               | JSON input, verbatim.                                                                                                                                                      |
-| `budget`                             | Not enforced yet: `total: null`, `spent(): 0`, `remaining(): Infinity`. Always guard on `total !== null`.                                                                  |
-| `workflow(ref, args?, { backend }?)` | Runs a child inline with shared concurrency, agent cap and cancellation. Child gets its own args and optional default backend. No grandchildren.                           |
+| Global                               | Behavior                                                                                                                                                                                                   |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent(prompt, opts?)`               | Returns final text, a validated object with `schema`, or `null` on failure/skip. Prompt must contain the entire task.                                                                                      |
+| `pipeline(items, ...stages)`         | Each item advances immediately through its stages. Stage receives `(previous, originalItem, index)`. A throw makes that item's result null, skips its remaining stages and emits a warning with the error. |
+| `parallel(thunks)`                   | Runs zero-argument functions concurrently. Waits for all; a failed thunk becomes null and emits a warning with the error.                                                                                  |
+| `phase(title)`                       | Sets the phase for subsequent agents. Prefer per-agent `phase` in concurrent code to avoid races.                                                                                                          |
+| `log(message)`                       | Emits a narrator line and stores it with the report.                                                                                                                                                       |
+| `args`                               | JSON input, verbatim.                                                                                                                                                                                      |
+| `budget`                             | Not enforced yet: `total: null`, `spent(): 0`, `remaining(): Infinity`. Always guard on `total !== null`.                                                                                                  |
+| `workflow(ref, args?, { backend }?)` | Runs a child inline with shared concurrency, agent cap and cancellation. Child gets its own args and optional default backend. No grandchildren.                                                           |
 
 `ref` is a saved name in `.workflow/workflows/` or `.claude/workflows/`, a
 script path relative to the parent file, or `{ scriptPath: './child.js' }`.

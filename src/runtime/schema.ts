@@ -108,14 +108,12 @@ export function codexNativeCompatible(schema: Record<string, Json>): boolean {
 
     if (node.type === "object" || node.properties) {
       const props = object(node.properties);
+      const required = node.required;
       if (
         node.additionalProperties !== false ||
         !props ||
-        !Array.isArray(node.required) ||
-        Object.keys(props).some(
-          (key) =>
-            !Array.isArray(node.required) || !node.required.includes(key),
-        )
+        !Array.isArray(required) ||
+        Object.keys(props).some((key) => !required.includes(key))
       ) {
         return false;
       }
