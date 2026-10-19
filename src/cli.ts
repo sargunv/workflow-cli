@@ -21,6 +21,7 @@ import type { Report } from "./runtime/store.js";
 import { readTranscript } from "./runtime/transcript.js";
 import { isErrno } from "./types.js";
 import { backendName, errorText, jsonValue } from "./types.js";
+import { version } from "./version.js";
 import { waitForRun } from "./wait.js";
 
 interface InspectOptions {
@@ -153,7 +154,7 @@ program
   .description(
     "Deterministic multi-agent workflows across coding agent harnesses",
   )
-  .version("0.1.0");
+  .version(version);
 
 program
   .command("info")

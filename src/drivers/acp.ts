@@ -13,6 +13,7 @@ import type {
   DriverResult,
   ModelInfo,
 } from "../types.js";
+import { version } from "../version.js";
 import { object, array, decode, string, AcpEventParser } from "./events.js";
 import { capture, findBinary, ManagedProcess } from "./process.js";
 
@@ -101,7 +102,7 @@ export class AcpConnection {
           fs: { readTextFile: false, writeTextFile: false },
           terminal: false,
         },
-        clientInfo: { name: "workflow", version: "0.1.0" },
+        clientInfo: { name: "workflow", version },
       }),
     );
 
