@@ -4,8 +4,8 @@ local lintSteps = new Mapping<String, Step> {
   ["dprint"] = (Builtins.dprint)
   ["workflow-examples"] {
     glob = List("examples/*.js")
-    check = "pnpm exec tsx scripts/format-examples.ts --check"
-    fix = "pnpm exec tsx scripts/format-examples.ts"
+    check = "node scripts/format-examples.ts --check"
+    fix = "node scripts/format-examples.ts"
   }
   ["vp-check"] {
     glob = List("**/*.ts", "**/*.js", "**/*.cjs")
