@@ -14,10 +14,15 @@ import type {
   ModelInfo,
 } from "../types.js";
 import { version } from "../version.js";
+import { availableBinary, composePrompt, detectBackend } from "./backend.js";
 import { object, array, decode, string, AcpEventParser } from "./events.js";
-import { capture, findBinary, ManagedProcess } from "./process.js";
+import { ManagedProcess } from "./process.js";
 
-type AcpBackend = "opencode" | "kimi" | "qwen";
+const backends = {
+  opencode: { argv: ["acp"], usage: true },
+  kimi: { argv: ["acp"], usage: false },
+  qwen: { argv: ["--acp"], usage: false },
+};
 
 interface Pending {
   resolve: (value: unknown) => void;
@@ -27,7 +32,7 @@ interface Pending {
 
 // Native ACP transports observed against OpenCode 1.18.28, Kimi 0.41.0 and
 // Qwen 0.23.0. One process per leaf bounds a crash/cancel to one agent.
-export class AcpConnection {
+class AcpConnection {
   readonly process: ManagedProcess;
 
   onUpdate: (params: Record<string, unknown>) => void = () => {};
@@ -214,10 +219,18 @@ export class AcpConnection {
   }
 }
 
+function findOption(
+  options: Record<string, unknown>[],
+  category: string,
+  id = category,
+) {
+  return options.find(
+    (option) => option.category === category || option.id === id,
+  );
+}
+
 function modelOptions(session: Record<string, unknown>): ModelInfo[] {
-  const config = array(session.configOptions)
-    .map(object)
-    .find((option) => option.category === "model" || option.id === "model");
+  const config = findOption(array(session.configOptions).map(object), "model");
   const configEntries = array(config?.options);
   const entries = configEntries.length
     ? configEntries
@@ -249,7 +262,7 @@ export class AcpDriver implements Driver {
   private detection?: Detection;
 
   constructor(
-    readonly name: AcpBackend,
+    readonly name: keyof typeof backends,
     private transport: TransportSettings = defaultTransport,
   ) {}
 
@@ -258,82 +271,30 @@ export class AcpDriver implements Driver {
     signal = new AbortController().signal,
   ): Promise<Detection> {
     signal.throwIfAborted();
-    if (this.detection) {
-      return this.detection;
-    }
-
-    const binary = await findBinary(this.name);
-    const detection: Detection = {
-      name: this.name,
-      available: !!binary,
-      binary,
-      notes: [],
-      transport: "acp",
-      models: [],
-      structured: "prompted",
-      correction: "session",
-      worktree: true,
-      toolPolicies: [],
-      minimal: false,
-      usage: this.name === "opencode",
-    };
-
-    if (binary) {
-      let connection: AcpConnection | undefined;
-      try {
-        detection.version = await capture(
-          binary,
-          ["--version"],
-          cwd,
-          this.transport.discoveryTimeoutMs,
-          signal,
-        );
-        connection = new AcpConnection(
-          binary,
-          this.argv(),
-          cwd,
-          signal,
-          () => {},
-          this.transport,
-        );
-        const { session } = await connection.start(cwd);
-        detection.models = modelOptions(session);
-        const effort = array(session.configOptions)
-          .map(object)
-          .find(
-            (option) =>
-              option.category === "thought_level" || option.id === "thinking",
-          );
-
-        if (effort) {
-          for (const model of detection.models) {
-            if (model.default) {
-              model.efforts = array(effort.options)
-                .map((option) => string(object(option).value))
-                .filter((value) => effortSchema.safeParse(value).success);
-            }
-          }
-        }
-      } catch (error) {
-        detection.available = false;
-        detection.notes.push(
-          `ACP initialization failed: ${errorText(error)}. Authenticate ${this.name} directly.`,
-        );
-      } finally {
-        await connection?.close();
-      }
-    } else {
-      detection.notes.push(`Install and authenticate ${this.name}`);
-    }
-
-    detection.notes.push(
-      "Native ACP: client permission requests auto-approved; no enforceable read-only policy",
-      "Backend retains its own sessions",
+    this.detection ??= await detectBackend(
+      this.name,
+      {
+        name: this.name,
+        notes: [
+          "Native ACP: client permission requests auto-approved; no enforceable read-only policy",
+          "Backend retains its own sessions",
+        ],
+        transport: "acp",
+        models: [],
+        structured: "prompted",
+        correction: "session",
+        worktree: true,
+        toolPolicies: [],
+        minimal: false,
+        usage: backends[this.name].usage,
+      },
+      cwd,
+      this.transport.discoveryTimeoutMs,
+      signal,
+      (binary, detection) => this.probeSession(binary, detection, cwd, signal),
     );
-    signal.throwIfAborted();
-    this.detection = detection;
 
-    return detection;
+    return this.detection;
   }
 
   async run(request: DriverRequest) {
@@ -345,16 +306,12 @@ export class AcpDriver implements Driver {
       throw new Error(`${this.name} ACP cannot suppress instruction loading`);
     }
 
-    const detection = await this.detect(request.cwd, request.signal);
-    if (!detection.available || !detection.binary) {
-      throw new Error(
-        `${this.name} unavailable: ${detection.notes.join("; ")}`,
-      );
-    }
-
+    const binary = availableBinary(
+      await this.detect(request.cwd, request.signal),
+    );
     const connection = new AcpConnection(
-      detection.binary,
-      this.argv(),
+      binary,
+      backends[this.name].argv,
       request.cwd,
       request.signal,
       request.onEvent,
@@ -396,9 +353,7 @@ export class AcpDriver implements Driver {
         return parser.finish(result);
       };
 
-      const result = await prompt(
-        `${request.systemAppend}\n\nTask:\n${request.prompt}`,
-      );
+      const result = await prompt(composePrompt(request));
       if (request.keepSession) {
         retained = true;
 
@@ -416,8 +371,46 @@ export class AcpDriver implements Driver {
     }
   }
 
-  private argv() {
-    return this.name === "qwen" ? ["--acp"] : ["acp"];
+  private async probeSession(
+    binary: string,
+    detection: Detection,
+    cwd: string,
+    signal: AbortSignal,
+  ) {
+    let connection: AcpConnection | undefined;
+    try {
+      connection = new AcpConnection(
+        binary,
+        backends[this.name].argv,
+        cwd,
+        signal,
+        () => {},
+        this.transport,
+      );
+      const { session } = await connection.start(cwd);
+      detection.models = modelOptions(session);
+      const effort = findOption(
+        array(session.configOptions).map(object),
+        "thought_level",
+        "thinking",
+      );
+      if (effort) {
+        for (const model of detection.models) {
+          if (model.default) {
+            model.efforts = array(effort.options)
+              .map((option) => string(object(option).value))
+              .filter((value) => effortSchema.safeParse(value).success);
+          }
+        }
+      }
+    } catch (error) {
+      detection.available = false;
+      detection.notes.push(
+        `ACP initialization failed: ${errorText(error)}. Authenticate ${this.name} directly.`,
+      );
+    } finally {
+      await connection?.close();
+    }
   }
 
   /** Each setter can replace the option catalog; keep model → mode → effort order. */
@@ -461,9 +454,7 @@ export class AcpDriver implements Driver {
     };
 
     if (request.model) {
-      const option = config.find(
-        (option) => option.category === "model" || option.id === "model",
-      );
+      const option = findOption(config, "model");
       if (option) {
         await configure(string(option.id), request.model);
       } else {
@@ -491,9 +482,7 @@ export class AcpDriver implements Driver {
       }
     }
 
-    const mode = config.find(
-      (option) => option.category === "mode" || option.id === "mode",
-    );
+    const mode = findOption(config, "mode");
     if (
       mode &&
       array(mode.options).some((option) => object(option).value === "yolo")
@@ -502,10 +491,7 @@ export class AcpDriver implements Driver {
     }
 
     if (request.effort) {
-      const option = config.find(
-        (option) =>
-          option.category === "thought_level" || option.id === "thinking",
-      );
+      const option = findOption(config, "thought_level", "thinking");
       if (
         option &&
         array(option.options).some(

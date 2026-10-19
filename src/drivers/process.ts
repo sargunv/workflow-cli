@@ -7,8 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import { isErrno } from "../types.js";
-import { errorText, ProcessOwnershipError } from "../types.js";
+import { errorText, isErrno, ProcessOwnershipError } from "../types.js";
 
 const supervisorPath = fileURLToPath(
   new URL("./supervisor.cjs", import.meta.url),
@@ -40,7 +39,7 @@ export async function findBinary(name: string): Promise<string | undefined> {
   return undefined;
 }
 
-export interface ProcessOptions {
+interface ProcessOptions {
   cwd: string;
   signal: AbortSignal;
   // A null timeout sets no deadline.
@@ -49,7 +48,7 @@ export interface ProcessOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-export interface ProcessExit {
+interface ProcessExit {
   code: number;
   stderr: string;
   error?: string;
@@ -205,7 +204,7 @@ export class ManagedProcess {
         spawnError = error.message;
       });
       const finish = (
-        _code: number | null,
+        code: number | null,
         exitSignal: NodeJS.Signals | null,
         drainError?: string,
       ) => {
@@ -235,7 +234,7 @@ export class ManagedProcess {
             backendExit?.error ??
             (backendExit
               ? undefined
-              : `Backend supervisor exited unexpectedly (${exitSignal ?? _code})`),
+              : `Backend supervisor exited unexpectedly (${exitSignal ?? code})`),
         });
       };
 
@@ -288,7 +287,7 @@ export async function capture(
   signal = new AbortController().signal,
 ): Promise<string> {
   let output = "";
-  const process = new ManagedProcess(binary, argv, {
+  const child = new ManagedProcess(binary, argv, {
     cwd,
     signal,
     timeoutMs,
@@ -302,8 +301,8 @@ export async function capture(
     },
   });
 
-  process.end();
-  const exit = await process.exited;
+  child.end();
+  const exit = await child.exited;
   if (exit.cleanupUncertain) {
     throw new ProcessOwnershipError(exit.error);
   }

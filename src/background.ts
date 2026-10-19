@@ -15,7 +15,7 @@ import { z } from "zod";
 import { configSchema } from "./config.js";
 import { jsonValue } from "./types.js";
 
-export const launchSchema = z
+const launchSchema = z
   .object({
     source: z.string(),
     scriptPath: z.string(),
@@ -39,9 +39,9 @@ const replySchema = z
   })
   .strict();
 
-export type LaunchReply = z.infer<typeof replySchema>;
+type LaunchReply = z.infer<typeof replySchema>;
 
-export interface LaunchResult extends LaunchReply {
+interface LaunchResult extends LaunchReply {
   warning?: string;
   logsDirectory?: string;
 }
