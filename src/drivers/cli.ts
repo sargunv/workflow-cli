@@ -2,17 +2,17 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defaultTransport } from "../config.js";
-import type { TransportSettings } from "../config.js";
+import { defaultTransport } from "../config.ts";
+import type { TransportSettings } from "../config.ts";
 import type {
   Detection,
   Driver,
   DriverEvent,
   DriverRequest,
   ModelInfo,
-} from "../types.js";
-import { effort, errorText, ProcessOwnershipError } from "../types.js";
-import { availableBinary, composePrompt, detectBackend } from "./backend.js";
+} from "../types.ts";
+import { effort, errorText, ProcessOwnershipError } from "../types.ts";
+import { availableBinary, composePrompt, detectBackend } from "./backend.ts";
 import {
   ClaudeEventParser,
   CodexEventParser,
@@ -20,9 +20,9 @@ import {
   array,
   object,
   string,
-} from "./events.js";
-import type { CliEventParser } from "./events.js";
-import { capture, ManagedProcess } from "./process.js";
+} from "./events.ts";
+import type { CliEventParser } from "./events.ts";
+import { capture, ManagedProcess } from "./process.ts";
 
 export function codexModels(output: string): ModelInfo[] {
   const data: unknown = JSON.parse(output);
@@ -259,10 +259,16 @@ export class CliDriver implements Driver {
 
   private backend: CliBackend;
 
+  readonly name: keyof typeof backends;
+
+  private transport: TransportSettings;
+
   constructor(
-    readonly name: keyof typeof backends,
-    private transport: TransportSettings = defaultTransport,
+    name: keyof typeof backends,
+    transport: TransportSettings = defaultTransport,
   ) {
+    this.name = name;
+    this.transport = transport;
     this.backend = backends[name];
   }
 

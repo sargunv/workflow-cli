@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { executeScript } from "../src/runtime/sandbox.js";
-import { compileSchema } from "../src/runtime/schema.js";
-import { parseScript } from "../src/runtime/script.js";
-import { agentOptions } from "../src/types.js";
-import type { Json } from "../src/types.js";
-import { host, text } from "./helpers/sandbox.js";
+import { executeScript } from "../src/runtime/sandbox.ts";
+import { compileSchema } from "../src/runtime/schema.ts";
+import { parseScript } from "../src/runtime/script.ts";
+import { agentOptions } from "../src/types.ts";
+import type { Json } from "../src/types.ts";
+import { host, text } from "./helpers/sandbox.ts";
 
 function object(value: Json | undefined): { [key: string]: Json } {
   assert.ok(

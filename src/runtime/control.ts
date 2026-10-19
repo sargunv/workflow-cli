@@ -6,9 +6,9 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { errorText, isErrno } from "../types.js";
-import { atomicJson, readReport, runPath } from "./store.js";
-import type { Report } from "./store.js";
+import { errorText, isErrno } from "../types.ts";
+import { atomicJson, readReport, runPath } from "./store.ts";
+import type { Report } from "./store.ts";
 
 const maxMessageLength = 4096;
 

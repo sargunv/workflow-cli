@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { isErrno } from "./types.js";
+import { isErrno } from "./types.ts";
 
 export const notice =
   "Agents run without approval prompts. Use worktree isolation and supported read-only policies; use a container or VM for untrusted repositories.";

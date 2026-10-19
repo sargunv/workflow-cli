@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { ManagedProcess } from "../src/drivers/process.js";
-import { alive, exited, tempDir, waitFor } from "./helpers/common.js";
+import { ManagedProcess } from "../src/drivers/process.ts";
+import { alive, exited, tempDir, waitFor } from "./helpers/common.ts";
 
 // Each fixture is a plain Node program; no vendor process is involved.
 function owned(source: string, timeoutMs: number | null = null) {

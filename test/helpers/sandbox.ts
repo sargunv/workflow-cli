@@ -1,7 +1,7 @@
-import type { SandboxHost } from "../../src/runtime/sandbox.js";
-import { parseScript } from "../../src/runtime/script.js";
-import type { Script } from "../../src/runtime/script.js";
-import type { Json } from "../../src/types.js";
+import type { SandboxHost } from "../../src/runtime/sandbox.ts";
+import { parseScript } from "../../src/runtime/script.ts";
+import type { Script } from "../../src/runtime/script.ts";
+import type { Json } from "../../src/types.ts";
 
 export function script(body: string): Script {
   return parseScript(

@@ -4,8 +4,8 @@ import { parse } from "acorn";
 import type { Expression, Property, SpreadElement } from "acorn";
 import { simple } from "acorn-walk";
 
-import { metadata } from "../types.js";
-import type { Json, Metadata } from "../types.js";
+import { metadata } from "../types.ts";
+import type { Json, Metadata } from "../types.ts";
 
 export interface Script {
   source: string;

@@ -2,8 +2,8 @@ import { appendFileSync, readFileSync } from "node:fs";
 
 import { z } from "zod";
 
-import { jsonValue } from "../types.js";
-import type { Json } from "../types.js";
+import { jsonValue } from "../types.ts";
+import type { Json } from "../types.ts";
 
 const traceEvent = z.discriminatedUnion("type", [
   z.object({
@@ -92,11 +92,20 @@ export class Replay {
 
   private terminals = new Map<number, Json>();
 
+  private path: string;
+
+  private previous: TraceEvent[];
+
+  private onDiverge: (reason: string) => void;
+
   constructor(
-    private path: string,
-    private previous: TraceEvent[] = [],
-    private onDiverge: (reason: string) => void = () => {},
+    path: string,
+    previous: TraceEvent[] = [],
+    onDiverge: (reason: string) => void = () => {},
   ) {
+    this.path = path;
+    this.previous = previous;
+    this.onDiverge = onDiverge;
     this.replaying = previous.length > 0;
     for (const event of previous) {
       if (event.type === "finish") {

@@ -3,10 +3,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { Replay, readTrace } from "../src/runtime/replay.js";
-import { executeScript } from "../src/runtime/sandbox.js";
-import { tempDir } from "./helpers/common.js";
-import { host, script, text } from "./helpers/sandbox.js";
+import { Replay, readTrace } from "../src/runtime/replay.ts";
+import { executeScript } from "../src/runtime/sandbox.ts";
+import { tempDir } from "./helpers/common.ts";
+import { host, script, text } from "./helpers/sandbox.ts";
 
 async function replays() {
   const dir = await tempDir("replay");

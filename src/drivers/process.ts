@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import { errorText, isErrno, ProcessOwnershipError } from "../types.js";
+import { errorText, isErrno, ProcessOwnershipError } from "../types.ts";
 
 const supervisorPath = fileURLToPath(
   new URL("./supervisor.cjs", import.meta.url),

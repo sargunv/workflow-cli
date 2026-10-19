@@ -1,7 +1,7 @@
 import type { ValidateFunction } from "ajv";
 
-import type { Config } from "../config.js";
-import { errorText, ProcessOwnershipError } from "../types.js";
+import type { Config } from "../config.ts";
+import { errorText, ProcessOwnershipError } from "../types.ts";
 import type {
   AgentOptions,
   AgentRecord,
@@ -14,18 +14,18 @@ import type {
   DriverSession,
   WorktreeRecord,
   UsageLimit,
-} from "../types.js";
-import type { RunEvent } from "./run.js";
+} from "../types.ts";
+import type { RunEvent } from "./run.ts";
 import {
   codexNativeCompatible,
   parseStructured,
   schemaError,
-} from "./schema.js";
+} from "./schema.ts";
 import {
   createWorktree,
   finishWorktree,
   WorktreeSetupError,
-} from "./worktree.js";
+} from "./worktree.ts";
 
 interface AgentInput {
   id: number;
@@ -70,10 +70,13 @@ export class AgentExecution {
   // ACP retains the first turn's callback, which must observe the current attempt.
   private attempt = 0;
 
-  constructor(
-    private input: AgentInput,
-    private services: AgentServices,
-  ) {
+  private input: AgentInput;
+
+  private services: AgentServices;
+
+  constructor(input: AgentInput, services: AgentServices) {
+    this.input = input;
+    this.services = services;
     this.record = {
       id: input.id,
       kind: "agent",

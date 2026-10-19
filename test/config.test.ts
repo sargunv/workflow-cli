@@ -3,8 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 
-import { configSchema, loadConfig } from "../src/config.js";
-import { setEnv, tempDir } from "./helpers/common.js";
+import { configSchema, loadConfig } from "../src/config.ts";
+import { setEnv, tempDir } from "./helpers/common.ts";
 
 void test("config rejects ambiguous, unbounded and harness-only settings", () => {
   for (const invalid of [

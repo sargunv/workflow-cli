@@ -1,7 +1,7 @@
 import { setTimeout } from "node:timers/promises";
 
-import { inspectReport } from "./runtime/control.js";
-import type { Report } from "./runtime/store.js";
+import { inspectReport } from "./runtime/control.ts";
+import type { Report } from "./runtime/store.ts";
 
 export async function waitForRun(
   root: string,

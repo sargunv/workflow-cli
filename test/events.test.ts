@@ -3,24 +3,24 @@ import { readFile } from "node:fs/promises";
 import { delimiter, dirname } from "node:path";
 import { test } from "node:test";
 
-import { codexModels, cursorModels, CliDriver } from "../src/drivers/cli.js";
+import { codexModels, cursorModels, CliDriver } from "../src/drivers/cli.ts";
 import {
   AcpEventParser,
   ClaudeEventParser,
   CodexEventParser,
   CursorEventParser,
   object,
-} from "../src/drivers/events.js";
-import type { CliEventParser } from "../src/drivers/events.js";
-import { parseStructured } from "../src/runtime/schema.js";
-import type { DriverEvent } from "../src/types.js";
+} from "../src/drivers/events.ts";
+import type { CliEventParser } from "../src/drivers/events.ts";
+import { parseStructured } from "../src/runtime/schema.ts";
+import type { DriverEvent } from "../src/types.ts";
 import {
   fixtureLines,
   fixturePath,
   installFake,
   setEnv,
   tempDir,
-} from "./helpers/common.js";
+} from "./helpers/common.ts";
 
 const parsers = {
   claude: ClaudeEventParser,

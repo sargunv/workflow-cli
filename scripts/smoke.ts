@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import { version } from "../src/version.js";
+import { version } from "../src/version.ts";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const work = await mkdtemp(join(tmpdir(), "workflow-smoke-"));

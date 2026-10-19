@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { agentOptions, backendName, isErrno } from "./types.js";
+import { agentOptions, backendName, isErrno } from "./types.ts";
 
 const transportSchema = z
   .object({

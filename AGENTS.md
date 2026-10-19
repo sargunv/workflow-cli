@@ -109,6 +109,11 @@ renders. Keep disk writes visible at the call site.
 edit them directly. `scripts/build.ts` syntax-checks both and copies them into
 `dist` unchanged.
 
+Node runs the TypeScript sources directly for tests, scripts and `pnpm dev`, so
+relative imports name the `.ts` file and `erasableSyntaxOnly` rules out syntax
+Node can't strip, such as parameter properties and enums. `tsc` rewrites the
+imports to `.js` for `dist`.
+
 Examples use top-level `return`, which the module formatter rejects, so
 `scripts/format-examples.ts` wraps each body in an async function, formats it
 with dprint and unwraps it. `mise run fix` and `mise run check` include this
