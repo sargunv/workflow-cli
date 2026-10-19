@@ -625,6 +625,12 @@ export class WorkflowRun {
       elapsedMs: 0,
       toolCalls: 0,
     });
+    // Cached replays deliver their recorded result, so only live calls can be
+    // skipped. Register before publishing so queued-event handlers can skip.
+    if (!this.replay.replays(key)) {
+      this.controllers.set(id, controller);
+    }
+
     this.event({
       type: "agent-queued",
       id,
@@ -634,13 +640,10 @@ export class WorkflowRun {
     try {
       const outcome = await this.replay.call(
         key,
-        async () => {
-          // Cached replays deliver their recorded result, so only live calls can be skipped.
-          this.controllers.set(id, controller);
-          return toJournalValue(
+        async () =>
+          toJournalValue(
             await this.liveAgent(id, prompt, effective, phase, signal),
-          );
-        },
+          ),
         // Run cancellation leaves an unfinished invocation in the replay trace.
         // An intentional per-agent skip is still a completed, cacheable null.
         () => !this.controller.signal.aborted,

@@ -756,3 +756,27 @@ void test("stop leaves running and queued calls live on resume while intentional
   assert.equal(skipErrors.length, 4);
   assert.match(skipErrors[0] ?? "", /replaying a cached result/);
 });
+
+void test("live agents can be skipped synchronously when queued", async () => {
+  const calls: string[] = [];
+  const request = await fixture(async (task) => {
+    calls.push(task.prompt);
+    return { text: task.prompt, exitInfo: { code: 0 } };
+  });
+  let skip = (id: number) => {
+    void id;
+  };
+  request.source = header + "return agent('skip when queued');";
+  request.onStarting = (run) => {
+    skip = (id) => run.skip(id);
+  };
+  request.onEvent = (event) => {
+    if (event.type === "agent-queued" && event.id) {
+      skip(event.id);
+    }
+  };
+  const report = await runWorkflow(request);
+  assert.equal(report.status, "completed");
+  assert.equal(report.agents[0]?.status, "skipped");
+  assert.deepEqual(calls, []);
+});
