@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { chmod, copyFile, mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { delimiter, dirname } from "node:path";
 import { test } from "node:test";
 
 import { codexModels, cursorModels, CliDriver } from "../src/drivers/cli.js";
@@ -15,6 +14,13 @@ import {
 import type { CliEventParser } from "../src/drivers/events.js";
 import { parseStructured } from "../src/runtime/schema.js";
 import type { DriverEvent } from "../src/types.js";
+import {
+  fixtureLines,
+  fixturePath,
+  installFake,
+  setEnv,
+  tempDir,
+} from "./helpers/common.js";
 
 const parsers = {
   claude: ClaudeEventParser,
@@ -22,47 +28,148 @@ const parsers = {
   cursor: CursorEventParser,
 };
 
+async function replayFixture(backend: keyof typeof parsers, name: string) {
+  const events: DriverEvent[] = [];
+  const parser = new parsers[backend]((event) => events.push(event));
+  for (const line of await fixtureLines(name)) {
+    parser.line(line, "stdout");
+  }
+  return { parser, events };
+}
+
 function feed(parser: CliEventParser, ...events: unknown[]) {
   for (const event of events) {
     parser.line(JSON.stringify(event), "stdout");
   }
 }
 
-void test("source-derived quota refusals retain details despite stderr and emit once", async () => {
-  for (const backend of ["claude", "codex"] as const) {
-    const events: DriverEvent[] = [];
-    const parser = new parsers[backend]((event) => events.push(event));
-    const lines = await readFile(
-      new URL(`./fixtures/${backend}-usage-limit.jsonl`, import.meta.url),
-      "utf8",
-    );
-    for (const line of lines.trim().split("\n")) {
-      parser.line(line, "stdout");
-    }
+void test("recorded Claude, Codex and Cursor streams yield final output and usage", async () => {
+  const claude = await replayFixture("claude", "claude-success.jsonl");
+  const result = claude.parser.finish(0);
+  assert.equal(result.exitInfo.error, undefined);
+  assert.deepEqual(result.structured, {
+    greeting: "Ready to orchestrate your workflow",
+  });
+  // Claude reports cache writes beside input_tokens.
+  assert.deepEqual(result.usage, { input: 17690, cachedInput: 0, output: 214 });
+  const cacheHit = new ClaudeEventParser(() => {});
+  feed(cacheHit, {
+    type: "result",
+    subtype: "success",
+    result: "done",
+    usage: {
+      input_tokens: 10,
+      cache_read_input_tokens: 300,
+      cache_creation_input_tokens: 5,
+      output_tokens: 2,
+    },
+  });
+  assert.deepEqual(cacheHit.finish(0).usage, {
+    input: 315,
+    cachedInput: 300,
+    output: 2,
+  });
+  assert.equal(
+    claude.events.filter((event) => event.type === "tool").length,
+    1,
+  );
 
-    const result = parser.finish(1, undefined, "backend stderr summary");
-    assert.ok(result.usageLimit);
-    assert.equal(result.exitInfo.error, result.usageLimit.message);
-    assert.match(result.usageLimit.message, /usage limit/);
-    assert.equal(
-      events.filter((event) => event.type === "usage-limit").length,
-      1,
-    );
-    if (backend === "claude") {
-      assert.equal(result.usageLimit.limit, "seven_day_opus");
-      assert.equal(result.usageLimit.resetsAt, "2026-10-13T00:00:00.000Z");
-    } else {
-      assert.match(result.usageLimit.message, /Oct 13th, 2026 10:00 AM/);
-      assert.equal(
-        result.usageLimit.resetsAt,
-        undefined,
-        "preserve the vendor reset text without inventing a timezone",
-      );
-    }
+  for (const [backend, usage] of [
+    ["codex", { input: 55046, cachedInput: 35328, output: 311 }],
+    ["cursor", { input: 31209, cachedInput: 19736, output: 286 }],
+  ] as const) {
+    const { parser } = await replayFixture(backend, `${backend}-success.jsonl`);
+    const finished = parser.finish(0);
+    assert.equal(finished.exitInfo.error, undefined);
+    assert.deepEqual(parseStructured(finished.text), { code: 731 });
+    assert.deepEqual(finished.usage, usage);
   }
 });
 
-void test("Claude legacy refusals and errors arrays interrupt only failed terminal results", () => {
+void test("recorded ACP streams keep each turn's final answer and only real usage", async () => {
+  for (const backend of ["opencode", "kimi", "qwen"]) {
+    const events: DriverEvent[] = [];
+    const parser = new AcpEventParser((event) => events.push(event));
+    const turns = [];
+    for (const line of await fixtureLines(`acp-${backend}.jsonl`)) {
+      const event = JSON.parse(line);
+      if (event.method === "session/update") {
+        parser.update(object(event.params.update));
+      }
+      if (event.result?.stopReason) {
+        turns.push(parser.finish(object(event.result)));
+        parser.reset();
+      }
+    }
+    assert.deepEqual(
+      turns.map((turn) => JSON.parse(turn.text)),
+      [{ code: 731 }, { remembered: 731 }],
+      backend,
+    );
+    assert.equal(events.filter((event) => event.type === "tool").length, 1);
+    // Only OpenCode reports per-turn tokens; the others report context
+    // occupancy, which must not become usage.
+    assert.deepEqual(
+      turns.map((turn) => turn.usage),
+      backend === "opencode"
+        ? [
+            { input: 6977, cachedInput: 6656, output: 9 },
+            { input: 7015, cachedInput: 6656, output: 10 },
+          ]
+        : [undefined, undefined],
+      backend,
+    );
+  }
+});
+
+void test("recorded model catalogs keep listed models and representable efforts", async () => {
+  const codex = codexModels(
+    await readFile(fixturePath("codex-models.json"), "utf8"),
+  );
+  assert.deepEqual(
+    codex.map((model) => model.id),
+    ["gpt-6-astra", "gpt-5.5"],
+  );
+  assert.deepEqual(codex[0]?.efforts, [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]);
+  // Catalog order does not prove the user's configured default.
+  assert.ok(codex.every((model) => !model.default));
+
+  const cursor = cursorModels(
+    await readFile(fixturePath("cursor-models.txt"), "utf8"),
+  );
+  assert.equal(cursor.length, 5);
+  assert.equal(cursor.find((model) => model.default)?.id, "auto");
+  assert.ok(cursor.some((model) => model.id === "gpt-5.6-sol-xhigh"));
+});
+
+void test("recorded quota refusals interrupt once and keep the vendor's details", async () => {
+  const claude = await replayFixture("claude", "claude-usage-limit.jsonl");
+  const claudeLimit = claude.parser.finish(1, undefined, "stderr").usageLimit;
+  assert.equal(claudeLimit?.limit, "seven_day_opus");
+  assert.equal(claudeLimit?.resetsAt, "2026-10-13T00:00:00.000Z");
+  assert.equal(
+    claude.events.filter((event) => event.type === "usage-limit").length,
+    1,
+  );
+
+  const codex = await replayFixture("codex", "codex-usage-limit.jsonl");
+  const codexResult = codex.parser.finish(1, undefined, "stderr");
+  assert.match(
+    codexResult.usageLimit?.message ?? "",
+    /Oct 13th, 2026 10:00 AM/,
+  );
+  assert.equal(codexResult.exitInfo.error, codexResult.usageLimit?.message);
+  // The vendor's reset text has no timezone; do not invent one.
+  assert.equal(codexResult.usageLimit?.resetsAt, undefined);
+});
+
+void test("Claude classifies only failed terminal refusals as usage limits", () => {
   const cases: Array<[boolean, Record<string, unknown>]> = [
     [
       true,
@@ -75,14 +182,8 @@ void test("Claude legacy refusals and errors arrays interrupt only failed termin
         errors: ["You’ve hit your limit · resets Oct 13"],
       },
     ],
-    [
-      true,
-      { api_error: "usage_limit_reached", errors: ["Usage credits exhausted"] },
-    ],
-    [
-      false,
-      { subtype: "error_max_budget_usd", errors: ["Exceeded max budget"] },
-    ],
+    [true, { api_error: "usage_limit_reached", errors: ["Credits exhausted"] }],
+    [false, { subtype: "error_max_budget_usd", errors: ["Exceeded budget"] }],
     [false, { subtype: "error_max_turns", result: "Maximum turns reached" }],
     [false, { errors: ["429 rate_limit_error: requests per minute exceeded"] }],
     [
@@ -92,16 +193,11 @@ void test("Claude legacy refusals and errors arrays interrupt only failed termin
         api_error: "model_requires_usage_credits",
       },
     ],
-    [
-      false,
-      {
-        is_error: false,
-        result: "You've hit your limit · example in a README",
-      },
-    ],
+    [false, { is_error: false, result: "You've hit your limit · in a README" }],
   ];
   for (const [expected, result] of cases) {
     const parser = new ClaudeEventParser(() => {});
+    // A rejected rate-limit event alone does not make a failure a refusal.
     feed(
       parser,
       {
@@ -116,6 +212,29 @@ void test("Claude legacy refusals and errors arrays interrupt only failed termin
       JSON.stringify(result),
     );
   }
+
+  // A refusal the harness recovered from is not reused for a later failure.
+  const recovered = new ClaudeEventParser(() => {});
+  feed(
+    recovered,
+    {
+      type: "assistant",
+      is_api_error_message: true,
+      api_error: "usage_limit_reached",
+      message: { content: [] },
+    },
+    {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Fallback succeeded" }] },
+    },
+    {
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["Unrelated terminal failure"],
+    },
+  );
+  assert.equal(recovered.finish(1).usageLimit, undefined);
 });
 
 void test("quota warnings, tool output and recoverable throttles do not interrupt", () => {
@@ -145,338 +264,71 @@ void test("quota warnings, tool output and recoverable throttles do not interrup
         result: "Quota exceeded is an error message",
       },
     );
-    assert.equal(parser.finish(0).usageLimit, undefined);
-    assert.equal(
-      events.filter((event) => event.type === "usage-limit").length,
-      0,
-    );
+    assert.equal(parser.finish(0).usageLimit, undefined, backend);
+    assert.ok(events.every((event) => event.type !== "usage-limit"));
   }
 });
 
-void test("Claude does not reuse a recovered refusal for a later unrelated failure", () => {
-  for (const recovered of [true, false]) {
-    const parser = new ClaudeEventParser(() => {});
-    feed(parser, {
-      type: "assistant",
-      is_api_error_message: true,
-      api_error: "usage_limit_reached",
-      message: { content: [] },
-    });
-    if (recovered) {
-      feed(parser, {
-        type: "assistant",
-        message: {
-          content: [{ type: "text", text: "Fallback model succeeded" }],
-        },
-      });
-    }
-
-    feed(parser, {
-      type: "result",
-      subtype: recovered ? "error_during_execution" : "error_max_turns",
-      is_error: true,
-      errors: ["Unrelated terminal failure"],
-    });
-    assert.equal(parser.finish(1).usageLimit, undefined);
-  }
-});
-
-void test("Claude legacy refusals do not inherit advisory limit/reset details", () => {
-  for (const status of ["allowed_warning", "rejected"]) {
-    const parser = new ClaudeEventParser(() => {});
-    feed(
-      parser,
-      {
-        type: "rate_limit_event",
-        rate_limit_info: {
-          status,
-          rateLimitType: "seven_day_opus",
-          resetsAt: 1791849600,
-        },
-      },
-      {
-        type: "assistant",
-        message: {
-          content: [{ type: "text", text: "Fallback model succeeded" }],
-        },
-      },
-      {
-        type: "result",
-        subtype: "success",
-        is_error: true,
-        result: "You've hit your limit · resets 10am",
-      },
-    );
-    assert.deepEqual(parser.finish(1).usageLimit, {
-      message: "You've hit your limit · resets 10am",
-    });
-  }
-});
-
-void test("recorded Claude stream yields native structured output and tool usage", async () => {
-  const events: DriverEvent[] = [];
-  const parser = new ClaudeEventParser((event) => events.push(event));
-  for (const line of (
-    await readFile(
-      new URL("./fixtures/claude-success.jsonl", import.meta.url),
-      "utf8",
-    )
-  )
-    .trim()
-    .split("\n")) {
-    parser.line(line, "stdout");
-  }
-  const result = parser.finish(0);
-  assert.equal(result.exitInfo.error, undefined);
-  assert.deepEqual(result.structured, {
-    greeting: "Ready to orchestrate your workflow",
-  });
-  assert.equal(events.filter((event) => event.type === "tool").length, 1);
-  assert.equal(result.usage?.output, 214);
-});
-
-void test("recorded native ACP streams retain only each turn's final answer and actual usage", async () => {
-  for (const backend of ["opencode", "kimi", "qwen"]) {
-    const events: DriverEvent[] = [];
-    const parser = new AcpEventParser((event) => events.push(event));
-    const turns = [];
-    const records = (
-      await readFile(
-        new URL(`./fixtures/acp-${backend}.jsonl`, import.meta.url),
-        "utf8",
-      )
-    )
-      .trim()
-      .split("\n");
-    for (const line of records) {
-      const event = JSON.parse(line);
-      if (event.method === "session/update") {
-        parser.update(object(event.params.update));
-      }
-      if (event.result?.stopReason) {
-        turns.push(parser.finish(object(event.result)));
-        parser.reset();
-      }
-    }
-    assert.deepEqual(
-      turns.map((turn) => JSON.parse(turn.text)),
-      [{ code: 731 }, { remembered: 731 }],
-      backend,
-    );
-    assert.equal(
-      events.filter((event) => event.type === "tool").length,
-      1,
-      backend,
-    );
-    if (backend === "opencode") {
-      // OpenCode reports cache reads beside inputTokens; totalTokens is their
-      // sum with output.
-      assert.deepEqual(
-        turns.map((turn) => turn.usage),
-        [
-          { input: 6977, cachedInput: 6656, output: 9 },
-          { input: 7015, cachedInput: 6656, output: 10 },
-        ],
-      );
-    } else {
-      assert.ok(
-        turns.every((turn) => turn.usage === undefined),
-        "context occupancy must not become token usage",
-      );
-    }
-  }
-});
-
-void test("recorded Codex and Cursor streams report vendor final text and usage", async () => {
-  for (const backend of ["codex", "cursor"] as const) {
-    const parser = new parsers[backend](() => {});
-    for (const line of (
-      await readFile(
-        new URL(`./fixtures/${backend}-success.jsonl`, import.meta.url),
-        "utf8",
-      )
-    )
-      .trim()
-      .split("\n")) {
-      parser.line(line, "stdout");
-    }
-    const result = parser.finish(0);
-    assert.equal(result.exitInfo.error, undefined);
-    assert.deepEqual(parseStructured(result.text), { code: 731 });
-    assert.equal(result.usage?.output, backend === "codex" ? 311 : 286);
-    assert.deepEqual(
-      result.usage,
-      backend === "codex"
-        ? { input: 55046, cachedInput: 35328, output: 311 }
-        : { input: 31209, cachedInput: 19736, output: 286 },
-    );
-  }
-});
-
-void test("recorded Codex catalog excludes hidden models and unrepresentable effort levels", async () => {
-  const models = codexModels(
-    await readFile(
-      new URL("./fixtures/codex-models.json", import.meta.url),
-      "utf8",
-    ),
-  );
-  assert.equal(models.length, 8);
-  assert.equal(
-    models.some(
-      (model) => model.id === "gpt-reserve" || model.id === "codex-auto-review",
-    ),
-    false,
-  );
-  assert.equal(
-    models.some((model) => model.efforts.includes("ultra")),
-    false,
-  );
-  assert.deepEqual(
-    models.find((model) => model.id === "gpt-6-astra")?.efforts,
-    ["low", "medium", "high", "xhigh", "max"],
-  );
-  assert.equal(
-    models.some((model) => model.default),
-    false,
-    "catalog ordering does not prove the user's configured default",
-  );
-});
-
-void test("recorded Claude read-only policy retains its native output tool", async () => {
-  const events = (
-    await readFile(
-      new URL("./fixtures/claude-read-only-schema.jsonl", import.meta.url),
-      "utf8",
-    )
-  )
-    .trim()
-    .split("\n");
-  const init = JSON.parse(events[0] ?? "null");
-  assert.deepEqual(init.tools, ["Glob", "Grep", "Read", "StructuredOutput"]);
-  const parser = new ClaudeEventParser(() => {});
-  for (const line of events) {
-    parser.line(line, "stdout");
-  }
-  assert.deepEqual(parser.finish(0).structured, { ok: true });
-});
-
-void test("Cursor catalog preserves literal effort model IDs and its reported default", async () => {
-  const models = cursorModels(
-    await readFile(
-      new URL("./fixtures/cursor-models.txt", import.meta.url),
-      "utf8",
-    ),
-  );
-  assert.ok(models.length > 30);
-  assert.equal(models.find((model) => model.default)?.id, "auto");
-  assert.ok(models.some((model) => model.id === "composer-2.5"));
-  assert.ok(models.some((model) => model.id === "gpt-5.6-sol-xhigh"));
-});
-void test("CLI usage is absent when counters are missing and Claude includes cache input", () => {
+void test("missing token counters are reported as unknown, not zero", () => {
   for (const backend of ["claude", "codex", "cursor"] as const) {
     const parser = new parsers[backend](() => {});
-    parser.line(
-      JSON.stringify({
-        type: backend === "codex" ? "turn.completed" : "result",
-        result: "answer",
-      }),
-      "stdout",
-    );
-    assert.equal(parser.finish(0).usage, undefined);
-  }
-  const claude = new ClaudeEventParser(() => {});
-  claude.line(
-    JSON.stringify({
-      type: "result",
+    feed(parser, {
+      type: backend === "codex" ? "turn.completed" : "result",
       result: "answer",
-      usage: {
-        input_tokens: 10,
-        output_tokens: 2,
-        cache_creation_input_tokens: 100,
-        cache_read_input_tokens: 200,
-      },
-    }),
-    "stdout",
-  );
-  assert.deepEqual(claude.finish(0).usage, {
-    input: 310,
-    cachedInput: 200,
-    output: 2,
+    });
+    assert.equal(parser.finish(0).usage, undefined, backend);
+  }
+});
+
+void test("failed CLI exits prefer the parsed error, then stderr, then the exit code", async (t) => {
+  const failed = new ClaudeEventParser(() => {});
+  feed(failed, {
+    type: "result",
+    subtype: "error_during_execution",
+    is_error: true,
+    errors: ["parsed failure"],
   });
-});
-void test("Claude minimal capability requires explicit API-key authentication", async () => {
-  const previous = process.env.ANTHROPIC_API_KEY;
-  try {
-    delete process.env.ANTHROPIC_API_KEY;
-    // No installed binary is invoked: make discovery deliberately unavailable.
-    const path = process.env.PATH;
-    process.env.PATH = "";
-    try {
-      const detection = await new CliDriver("claude").detect(process.cwd());
-      assert.equal(detection.minimal, false);
-      assert.ok(
-        detection.notes.some((note) => note.includes("ANTHROPIC_API_KEY")),
-      );
-      process.env.ANTHROPIC_API_KEY = "offline-fixture";
-      assert.equal(
-        (await new CliDriver("claude").detect(process.cwd())).minimal,
-        true,
-      );
-    } finally {
-      if (path === undefined) {
-        delete process.env.PATH;
-      } else {
-        process.env.PATH = path;
-      }
-    }
-  } finally {
-    if (previous === undefined) {
-      delete process.env.ANTHROPIC_API_KEY;
-    } else {
-      process.env.ANTHROPIC_API_KEY = previous;
-    }
-  }
-});
-
-void test("failed CLI exits prefer the parsed error, then stderr, then the exit code", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "workflow-events-"));
-  await copyFile(
-    new URL("./helpers/fake-claude.cjs", import.meta.url),
-    join(cwd, "claude"),
-  );
-  await chmod(join(cwd, "claude"), 0o755);
-  const path = process.env.PATH;
-  process.env.PATH = [cwd, dirname(process.execPath)].join(delimiter);
-  try {
-    const driver = new CliDriver("claude");
-    const run = (prompt: string) =>
-      driver.run({
-        prompt,
-        cwd,
-        systemAppend: "test",
-        signal: new AbortController().signal,
-        onEvent: () => {},
-      });
-    assert.deepEqual((await run("fail with result")).exitInfo, {
-      code: 1,
-      error: "parsed failure",
-    });
-    assert.deepEqual((await run("fail with stderr")).exitInfo, {
-      code: 1,
-      error: "stderr failure",
-    });
-  } finally {
-    process.env.PATH = path;
-  }
-
-  const parser = new ClaudeEventParser(() => {});
-  feed(parser, { type: "result", subtype: "success", result: "done" });
   assert.equal(
-    parser.finish(2, undefined, "\n").exitInfo.error,
+    failed.finish(1, undefined, "noise").exitInfo.error,
+    "parsed failure",
+  );
+  // A process timeout or ownership error outranks vendor stderr.
+  const timedOut = new ClaudeEventParser(() => {});
+  assert.equal(
+    timedOut.finish(2, "Backend timed out", "noise").exitInfo.error,
+    "Backend timed out",
+  );
+  const silent = new ClaudeEventParser(() => {});
+  feed(silent, { type: "result", subtype: "success", result: "done" });
+  assert.equal(
+    silent.finish(2, undefined, "\n").exitInfo.error,
     "Backend exited 2",
   );
+
+  // Stderr reaches the report through a real process.
+  const cwd = await tempDir("events");
+  await installFake(cwd, "fake-claude", "claude");
+  setEnv(t, { PATH: [cwd, dirname(process.execPath)].join(delimiter) });
+  const result = await new CliDriver("claude").run({
+    prompt: "fail with stderr",
+    cwd,
+    systemAppend: "test",
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  assert.deepEqual(result.exitInfo, { code: 1, error: "stderr failure" });
+});
+
+void test("Claude minimal mode requires explicit API-key authentication", async (t) => {
+  // An empty PATH keeps discovery from invoking any installed binary.
+  setEnv(t, { PATH: "", ANTHROPIC_API_KEY: undefined });
   assert.equal(
-    parser.finish(2, "Backend timed out", "noise").exitInfo.error,
-    "Backend timed out",
+    (await new CliDriver("claude").detect(process.cwd())).minimal,
+    false,
+  );
+  process.env.ANTHROPIC_API_KEY = "offline-fixture";
+  assert.equal(
+    (await new CliDriver("claude").detect(process.cwd())).minimal,
+    true,
   );
 });

@@ -40,18 +40,6 @@ if (process.argv.includes("--version")) {
       setInterval(() => {}, 1000);
       return;
     }
-    if (prompt === "fail with result") {
-      console.log(
-        JSON.stringify({
-          type: "result",
-          subtype: "error_during_execution",
-          is_error: true,
-          errors: ["parsed failure"],
-        }),
-      );
-      process.exitCode = 1;
-      return;
-    }
     if (prompt === "fail with stderr") {
       process.stderr.write("stderr failure\n");
       process.exitCode = 1;

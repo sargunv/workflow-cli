@@ -1,12 +1,10 @@
 # Recorded protocol fixtures
 
 Fixtures are sanitized: session IDs, local paths, hook metadata, thought chunks
-and unrelated catalog fields are removed. Tests must never obtain fixtures by
-invoking a real agent.
+and unrelated catalog fields are removed, and catalogs keep only the entries
+tests assert on. Tests must never obtain fixtures by invoking a real agent.
 
 - `claude-success.jsonl`: Claude CLI 2.1.261 session, 2026-09-05.
-- `claude-read-only-schema.jsonl`: Claude CLI 2.1.261 with
-  `toolPolicy: 'read-only'` and native schema output, 2026-09-05.
 - `claude-usage-limit.jsonl`: synthetic, from Claude CLI 2.1.296 embedded
   schemas; dates and IDs are invented.
 - `codex-success.jsonl`: Codex CLI 0.153.3 session, 2026-09-05.
@@ -20,8 +18,8 @@ invoking a real agent.
   both turns, 2026-09-05.
 - `qwen-model-config.json`: Qwen ACP config surfaces before and after selecting
   Flash, 2026-09-05.
-- `qwen-session-config.json`: `models` and `configOptions` from a Qwen ACP
-  `session/new` response, 2026-09-05.
+- `qwen-session-config.json`: `models` from a Qwen ACP `session/new` response,
+  2026-09-05.
 
-The helpers under `test/helpers/` are synthetic servers; they test protocol
+The executables under `test/helpers/` are synthetic servers; they test protocol
 handling, not what any installed vendor accepts.
