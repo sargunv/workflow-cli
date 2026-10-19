@@ -27,7 +27,12 @@ function surface(tty: boolean) {
 
 async function completedReport(
   result: Json,
-  agents: { usage?: Usage; cached?: boolean; prompt?: string }[] = [],
+  agents: {
+    usage?: Usage;
+    cached?: boolean;
+    prompt?: string;
+    toolCalls?: number;
+  }[] = [],
 ) {
   const root = await tempDir("output");
   const store = await RunStore.create({
@@ -54,7 +59,7 @@ async function completedReport(
       cached: agent.cached ?? false,
       startedAt: new Date().toISOString(),
       durationMs: 5,
-      toolCalls: 0,
+      toolCalls: agent.toolCalls ?? 0,
       usage: agent.usage,
     });
   }
@@ -132,12 +137,18 @@ void test("summaries keep prompts and results out of tables and spill large resu
 
 void test("token totals count live agents and know the cached share only when all report it", async () => {
   const known = await completedReport(null, [
-    { usage: { input: 100, cachedInput: 80, output: 5 } },
-    { usage: { input: 20, cachedInput: 0, output: 3 } },
-    { usage: { input: 1000, cachedInput: 0, output: 1000 }, cached: true },
+    { usage: { input: 100, cachedInput: 80, output: 5 }, toolCalls: 2 },
+    { usage: { input: 20, cachedInput: 0, output: 3 }, toolCalls: 1 },
+    {
+      usage: { input: 1000, cachedInput: 0, output: 1000 },
+      cached: true,
+      toolCalls: 12,
+    },
     {},
   ]);
   const summary = prepareReport(known);
+  assert.equal(summary.toolCalls, 3);
+  assert.equal(summary.cachedToolCalls, 12);
   assert.deepEqual(summary.tokens, {
     input: 120,
     cachedInput: 80,

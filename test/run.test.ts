@@ -79,6 +79,9 @@ void test("usage limits stop admission, keep changed work and resume the interru
   const request = await fixture(
     async (task) => {
       calls.push(task.prompt);
+      if (task.prompt === "ordinary failure") {
+        return { text: "", exitInfo: { code: 1, error: "ordinary failure" } };
+      }
       if (exhausted && task.prompt === "active") {
         await untilAborted(task.signal);
         throw new Error("active sibling cancelled");
@@ -101,18 +104,18 @@ void test("usage limits stop admission, keep changed work and resume the interru
   );
   request.source =
     header +
-    "await agent('seed'); return parallel([()=>agent('active'),()=>agent('limited',{backend:'codex',isolation:'worktree'}),()=>agent('queued')]);";
+    "await agent('ordinary failure'); await agent('seed'); return parallel([()=>agent('active'),()=>agent('limited',{backend:'codex',isolation:'worktree'}),()=>agent('queued')]);";
   const first = await runWorkflow(request);
   assert.equal(first.status, "cancelled", first.error ?? "");
   assert.match(first.error ?? "", /codex usage limit/);
   assert.deepEqual(first.usageLimit, {
     backend: "codex",
-    agentId: 3,
+    agentId: 4,
     message: "Quota exhausted",
     limit: "five_hour",
     resetsAt: "2026-10-13T00:00:00Z",
   });
-  assert.deepEqual(calls, ["seed", "active", "limited"]);
+  assert.deepEqual(calls, ["ordinary failure", "seed", "active", "limited"]);
   const tree = first.agents.find(
     (agent) => agent.prompt === "limited",
   )?.worktree;
@@ -127,7 +130,13 @@ void test("usage limits stop admission, keep changed work and resume the interru
   const resumed = await runWorkflow({ ...request, resume: first.runId });
   assert.equal(resumed.status, "completed", resumed.error ?? "");
   assert.deepEqual(resumed.result, ["active", "limited", "queued"]);
+  // The ordinary failure stays a cached null; only interrupted calls rerun.
   assert.deepEqual(calls.toSorted(), ["active", "limited", "queued"]);
+  const failed = resumed.agents.find(
+    (agent) => agent.prompt === "ordinary failure",
+  );
+  assert.equal(failed?.cached, true);
+  assert.match(failed?.reason ?? "", /ordinary failure/);
   assert.equal(resumed.usageLimit, undefined);
 });
 
@@ -332,10 +341,13 @@ void test("stop leaves started and queued calls live on resume while skips stay 
 });
 
 void test("child workflows share arguments and nest only one level", async () => {
-  const request = await fixture(async (task) => ({
-    text: task.prompt,
-    exitInfo: { code: 0 },
-  }));
+  const request = await fixture(async (task) => {
+    if (task.prompt === "child") {
+      // Settle only after the parent has returned.
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    return { text: task.prompt, exitInfo: { code: 0 } };
+  });
   const child = join(request.cwd, "child.js");
   await writeFile(child, header + "return agent(args.message)");
   request.source =
@@ -346,6 +358,19 @@ void test("child workflows share arguments and nest only one level", async () =>
   const nested = await runWorkflow(request);
   assert.equal(nested.status, "failed");
   assert.match(nested.error ?? "", /one level/);
+
+  // An unawaited child is cancelled with the parent and cannot change its report.
+  await writeFile(
+    child,
+    header + "await agent('child'); log('late child'); return 'child'",
+  );
+  request.source = header + "workflow('./child.js'); return 'parent done'";
+  const parent = await runWorkflow(request);
+  assert.equal(parent.result, "parent done");
+  const snapshot = JSON.stringify(parent);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(JSON.stringify(parent), snapshot);
+  assert.deepEqual(parent.logs, []);
 });
 
 void test("resume reconstructs missing generated children and prefers edited current sources", async () => {
