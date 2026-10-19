@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { configSchema } from "../src/config.js";
 import { runWorkflow } from "../src/runtime/run.js";
 import type { RunRequest } from "../src/runtime/run.js";
-import { ProcessOwnershipError } from "../src/types.js";
+import { errorText, ProcessOwnershipError } from "../src/types.js";
 import type {
   Detection,
   Driver,
@@ -208,10 +208,25 @@ void test("invalid structured output gets bounded read-only corrections and neve
   assert.equal(prompts.length, 3);
   assert.equal(report.agents[0]?.status, "errored");
   assert.ok(report.agents[0]?.reason);
+  const schema = {
+    type: "object",
+    properties: { value: { type: "string" } },
+    required: ["value"],
+  };
+  let parseError = "";
+  try {
+    JSON.parse("not JSON");
+  } catch (error) {
+    parseError = errorText(error);
+  }
   // Corrections must not repeat the task's side effects.
   for (const correction of prompts.slice(1)) {
     assert.equal(correction.prompt.includes("MAKE THE ORIGINAL EDIT"), false);
     assert.equal(correction.toolPolicy, "read-only");
+    // Each formatting turn sees the prior result, its validation error and the schema.
+    assert.ok(correction.prompt.includes(JSON.stringify("not JSON")));
+    assert.ok(correction.prompt.includes(parseError));
+    assert.ok(correction.prompt.includes(JSON.stringify(schema)));
   }
 });
 
@@ -342,6 +357,9 @@ void test("stop leaves started and queued calls live on resume while skips stay 
 
 void test("child workflows share arguments and nest only one level", async () => {
   const request = await fixture(async (task) => {
+    if (task.prompt === "remove child") {
+      await rm(join(task.cwd, "child.js"));
+    }
     if (task.prompt === "child") {
       // Settle only after the parent has returned.
       await new Promise((resolve) => setTimeout(resolve, 5));
@@ -358,6 +376,13 @@ void test("child workflows share arguments and nest only one level", async () =>
   const nested = await runWorkflow(request);
   assert.equal(nested.status, "failed");
   assert.match(nested.error ?? "", /one level/);
+
+  // A literal child runs the source prepared at launch, even if an agent removes it.
+  await writeFile(child, header + "return agent('prepared child')");
+  request.source =
+    header + "await agent('remove child'); return workflow('./child.js')";
+  const prepared = await runWorkflow(request);
+  assert.equal(prepared.result, "prepared child", prepared.error ?? "");
 
   // An unawaited child is cancelled with the parent and cannot change its report.
   await writeFile(

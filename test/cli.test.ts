@@ -27,14 +27,14 @@ void test("skill installation copies linked references and updates bundled files
     assert.equal(await installed(path), await bundled(path));
   }
 
+  await writeFile(join(destination, "SKILL.md"), "old entrypoint");
   await writeFile(join(destination, "references", "claude.md"), "old guide");
   await writeFile(join(destination, "references", "local.md"), "local notes");
   const update = await command(["skill", "--install", destination], p);
   assert.equal(update.code, 0, update.stderr);
-  assert.equal(
-    await installed("references/claude.md"),
-    await bundled("references/claude.md"),
-  );
+  for (const path of ["SKILL.md", "references/claude.md"]) {
+    assert.equal(await installed(path), await bundled(path));
+  }
   assert.equal(await installed("references/local.md"), "local notes");
 
   const printed = await command(["skill", "--print"], p);

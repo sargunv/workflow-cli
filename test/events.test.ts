@@ -52,6 +52,23 @@ void test("recorded Claude, Codex and Cursor streams yield final output and usag
   });
   // Claude reports cache writes beside input_tokens.
   assert.deepEqual(result.usage, { input: 17690, cachedInput: 0, output: 214 });
+  const cacheHit = new ClaudeEventParser(() => {});
+  feed(cacheHit, {
+    type: "result",
+    subtype: "success",
+    result: "done",
+    usage: {
+      input_tokens: 10,
+      cache_read_input_tokens: 300,
+      cache_creation_input_tokens: 5,
+      output_tokens: 2,
+    },
+  });
+  assert.deepEqual(cacheHit.finish(0).usage, {
+    input: 315,
+    cachedInput: 300,
+    output: 2,
+  });
   assert.equal(
     claude.events.filter((event) => event.type === "tool").length,
     1,
@@ -274,6 +291,12 @@ void test("failed CLI exits prefer the parsed error, then stderr, then the exit 
   assert.equal(
     failed.finish(1, undefined, "noise").exitInfo.error,
     "parsed failure",
+  );
+  // A process timeout or ownership error outranks vendor stderr.
+  const timedOut = new ClaudeEventParser(() => {});
+  assert.equal(
+    timedOut.finish(2, "Backend timed out", "noise").exitInfo.error,
+    "Backend timed out",
   );
   const silent = new ClaudeEventParser(() => {});
   feed(silent, { type: "result", subtype: "success", result: "done" });

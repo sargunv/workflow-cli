@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { ManagedProcess } from "../src/drivers/process.js";
-import { exited, tempDir, waitFor } from "./helpers/common.js";
+import { alive, exited, tempDir, waitFor } from "./helpers/common.js";
 
 // Each fixture is a plain Node program; no vendor process is involved.
 function owned(source: string, timeoutMs: number | null = null) {
@@ -88,6 +88,8 @@ void test("owner death kills the backend without cooperative cleanup", async () 
       signal: AbortSignal.timeout(5000),
     });
     const pid = Number.parseInt(String(chunk), 10);
+    assert.ok(Number.isSafeInteger(pid) && pid > 0, String(chunk));
+    assert.ok(alive(pid));
     owner.kill("SIGKILL");
     await exited(pid);
   } finally {
