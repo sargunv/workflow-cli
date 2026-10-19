@@ -77,7 +77,10 @@ void test("background runs can be waited on and resumed from cache; launch failu
     ["run", p.script, "--resume", run.runId, "--json"],
     p,
   );
+  assert.equal(resumed.code, 0, resumed.stderr);
   const report = final(resumed.stdout);
+  assert.equal(report.status, "completed");
+  assert.equal(report.result, "hello fixture");
   assert.equal(report.counts.cached, 1);
   const transcript = await command(
     ["show", report.runId, "--agent", "1", "--transcript"],

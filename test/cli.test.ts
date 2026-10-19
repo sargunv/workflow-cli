@@ -96,6 +96,13 @@ void test("model selections reach Claude unchanged and --model sets the run defa
     .map((line): string[] => JSON.parse(line))
     .map((argv) => argv[argv.indexOf("--model") + 1]);
   assert.deepEqual(new Set(selected), new Set([...models, "fixture-model"]));
+
+  const empty = await command(["run", p.script, "--model", "", "--json"], p);
+  assert.equal(empty.code, 1);
+  assert.equal(
+    (await readFile(argvLog, "utf8")).trim().split("\n").length,
+    selected.length,
+  );
 });
 
 void test("a closed stdout pipe is quiet and cancels owned foreground work", async () => {

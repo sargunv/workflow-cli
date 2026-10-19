@@ -155,7 +155,10 @@ void test("token totals count live agents and know the cached share only when al
     output: 8,
     unreportedAgents: 1,
   });
-  assert.match(formatReport(known, summary), /120 input tokens \(80 cached\)/);
+  assert.match(
+    formatReport(known, summary),
+    /120 input tokens \(80 cached\) · 8 output tokens/,
+  );
 
   const partial = await completedReport(null, [
     { usage: { input: 100, cachedInput: 80, output: 5 } },
