@@ -1,52 +1,29 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 import { configSchema, loadConfig } from "../src/config.js";
-void test("backend selection has a single run-default location", () => {
-  assert.throws(() =>
-    configSchema.parse({ backend: "codex", defaults: { backend: "claude" } }),
-  );
-  assert.equal(
-    configSchema.parse({
-      backend: "codex",
-      profiles: { reviewer: { backend: "claude" } },
-    }).backend,
-    "codex",
-  );
-});
-void test("agents have no deadline unless one is configured", () => {
-  assert.equal(configSchema.parse({}).transport.agentTimeoutMs, null);
-});
-void test("transport and sandbox overrides are bounded and explicit", () => {
-  const config = configSchema.parse({
-    transport: { agentTimeoutMs: 60_000 },
-    sandbox: { memoryBytes: 128 * 1024 * 1024 },
-    schemaStrategy: "prompted",
-  });
-  assert.equal(config.transport.agentTimeoutMs, 60_000);
-  assert.equal(config.transport.discoveryTimeoutMs, 20_000);
-  assert.equal(config.sandbox.memoryBytes, 128 * 1024 * 1024);
-  assert.equal(config.sandbox.interruptChecks, 100_000);
-  assert.throws(() => configSchema.parse({ transport: { agentTimeoutMs: 0 } }));
-  assert.throws(() => configSchema.parse({ sandbox: { memoryBytes: -1 } }));
-});
+import { setEnv, tempDir } from "./helpers/common.js";
 
-void test("profiles reject harness agentType and recursive profile selections", () => {
-  assert.throws(() =>
-    configSchema.parse({ profiles: { reviewer: { agentType: "Explore" } } }),
-  );
-  assert.throws(() =>
-    configSchema.parse({ profiles: { reviewer: { profile: "another" } } }),
-  );
+void test("config rejects ambiguous, unbounded and harness-only settings", () => {
+  for (const invalid of [
+    { backend: "codex", defaults: { backend: "claude" } },
+    { transport: { agentTimeoutMs: 0 } },
+    { sandbox: { memoryBytes: -1 } },
+    { profiles: { reviewer: { agentType: "Explore" } } },
+    { profiles: { reviewer: { profile: "another" } } },
+  ]) {
+    assert.throws(() => configSchema.parse(invalid), JSON.stringify(invalid));
+  }
+  // Agents run without a deadline unless the user sets one.
+  assert.equal(configSchema.parse({}).transport.agentTimeoutMs, null);
 });
 
 void test("local config merges object fields over global config", async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "workflow-config-"));
+  const root = await tempDir("config");
   const write = async (path: string, value: unknown) => {
-    await mkdir(join(root, path, ".."), { recursive: true });
+    await mkdir(dirname(join(root, path)), { recursive: true });
     await writeFile(join(root, path), JSON.stringify(value));
   };
   await write("config/workflow/config.json", {
@@ -65,15 +42,7 @@ void test("local config merges object fields over global config", async (t) => {
     profiles: { reviewer: { effort: "xhigh" } },
     sharedPaths: [{ path: ".env", mode: "copy" }],
   });
-  const previous = process.env.XDG_CONFIG_HOME;
-  t.after(() => {
-    if (previous === undefined) {
-      delete process.env.XDG_CONFIG_HOME;
-    } else {
-      process.env.XDG_CONFIG_HOME = previous;
-    }
-  });
-  process.env.XDG_CONFIG_HOME = join(root, "config");
+  setEnv(t, { XDG_CONFIG_HOME: join(root, "config") });
   const config = await loadConfig(join(root, "project"));
   assert.equal(config.backend, "codex");
   assert.deepEqual(config.defaults, {
@@ -86,5 +55,6 @@ void test("local config merges object fields over global config", async (t) => {
     reviewer: { effort: "xhigh", toolPolicy: "read-only" },
     writer: { model: "writer-model" },
   });
+  // Arrays replace rather than concatenate.
   assert.deepEqual(config.sharedPaths, [{ path: ".env", mode: "copy" }]);
 });

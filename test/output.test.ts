@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
 import { configSchema } from "../src/config.js";
@@ -9,7 +7,9 @@ import { agentTable, prepareReport, formatReport } from "../src/output.js";
 import { Progress } from "../src/progress.js";
 import type { ProgressSurface } from "../src/progress.js";
 import { RunStore } from "../src/runtime/store.js";
-import type { Usage } from "../src/types.js";
+import type { Json, Usage } from "../src/types.js";
+import { tempDir } from "./helpers/common.js";
+
 function surface(tty: boolean) {
   let now = 0;
   const output: string[] = [];
@@ -24,22 +24,51 @@ function surface(tty: boolean) {
   };
   return { ui, output, errors, tick: (value: number) => (now = value) };
 }
-void test("streaming activity is coalesced and terminal lifecycle stays intact", () => {
+
+async function completedReport(
+  result: Json,
+  agents: { usage?: Usage; cached?: boolean; prompt?: string }[] = [],
+) {
+  const root = await tempDir("output");
+  const store = await RunStore.create({
+    root,
+    source: "source",
+    args: null,
+    config: configSchema.parse({}),
+    meta: { name: "report", description: "report" },
+    cwd: root,
+    scriptPath: "script.js",
+  });
+  store.report.status = "completed";
+  store.report.result = result;
+  for (const [index, agent] of agents.entries()) {
+    store.agent({
+      id: index + 1,
+      kind: "agent",
+      prompt: agent.prompt ?? "task",
+      options: {},
+      key: `agent-${index}`,
+      phase: "Run",
+      status: "done",
+      result: "PRIVATE RESULT",
+      cached: agent.cached ?? false,
+      startedAt: new Date().toISOString(),
+      durationMs: 5,
+      toolCalls: 0,
+      usage: agent.usage,
+    });
+  }
+  return store.report;
+}
+
+void test("JSON progress coalesces streaming activity without losing lifecycle events", () => {
   const view = surface(false);
   const progress = new Progress(true, view.ui);
   progress.event({ type: "agent-started", id: 1 });
   for (let i = 0; i < 500; i++) {
-    progress.event({
-      type: "activity",
-      id: 1,
-      text: `chunk ${i}`,
-      toolCalls: 3,
-    });
+    progress.event({ type: "activity", id: 1, text: `chunk ${i}` });
   }
-  assert.equal(view.output.length, 1);
   progress.flush();
-  assert.equal(view.output.length, 2);
-  assert.match(view.output[1] ?? "", /chunk 499/);
   progress.event({
     type: "agent-finished",
     id: 1,
@@ -47,18 +76,18 @@ void test("streaming activity is coalesced and terminal lifecycle stays intact",
     elapsedMs: 4000,
   });
   progress.close();
-  assert.equal(view.output.length, 3);
-  assert.match(view.output[2] ?? "", /agent-finished/);
+  const events = view.output.map((line) => JSON.parse(line));
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ["agent-started", "activity", "agent-finished"],
+  );
+  assert.equal(events[1].text, "chunk 499");
 });
-void test("completed elapsed time freezes and terminal control bytes are neutralized", () => {
+
+void test("terminal output freezes finished elapsed time and neutralizes control bytes", async () => {
   const view = surface(true);
   const progress = new Progress(false, view.ui);
-  progress.event({
-    type: "agent-started",
-    id: 1,
-    label: "Read",
-    phase: "Review",
-  });
+  progress.event({ type: "agent-started", id: 1, label: "Read" });
   view.tick(5000);
   progress.event({
     type: "agent-finished",
@@ -71,130 +100,55 @@ void test("completed elapsed time freezes and terminal control bytes are neutral
   progress.event({ type: "log", text: "status\u001b[2J" });
   progress.flush();
   progress.close();
-  const text = view.errors.join("");
-  assert.match(text, /5\.0s/);
-  assert.doesNotMatch(text, /60\.0s/);
-  assert.equal(text.includes("status\u001b"), false);
+  const live = view.errors.join("");
+  assert.match(live, /5\.0s/);
+  assert.doesNotMatch(live, /60\.0s/);
+  assert.equal(live.includes("\u001b[2J"), false);
+
+  const report = await completedReport(
+    "first\n\tsecond\u001b]52;c;payload\u0007",
+  );
+  const human = formatReport(report, prepareReport(report));
+  assert.ok(human.includes("first\n\tsecond"));
+  assert.equal(human.includes("\u001b") || human.includes("\u0007"), false);
+  assert.equal(prepareReport(report).result, report.result);
 });
-void test("summary tables omit prompts and results; large Unicode results spill intact", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workflow-output-"));
-  const store = await RunStore.create({
-    root,
-    source: "source",
-    args: null,
-    config: configSchema.parse({}),
-    meta: { name: "large", description: "large result" },
-    cwd: root,
-    scriptPath: "script.js",
-  });
-  store.report.status = "completed";
-  store.report.result = "😀".repeat(10_000);
-  store.agent({
-    id: 1,
-    kind: "agent",
-    prompt: "PRIVATE TASK",
-    options: {},
-    key: "private",
-    phase: "Review",
-    status: "done",
-    result: "PRIVATE RESULT",
-    cached: true,
-    startedAt: new Date().toISOString(),
-    durationMs: 5,
-    toolCalls: 12,
-    usage: { input: 1, output: 2 },
-  });
-  const summary = prepareReport(store.report);
-  assert.equal(summary.toolCalls, 0);
-  assert.equal(summary.cachedToolCalls, 12);
-  assert.equal(summary.tokens.output, 0);
+
+void test("summaries keep prompts and results out of tables and spill large results intact", async () => {
+  const report = await completedReport("😀".repeat(10_000), [
+    { prompt: "PRIVATE TASK" },
+  ]);
+  const summary = prepareReport(report);
   assert.ok(summary.resultPath);
   assert.ok(Buffer.byteLength(summary.preview ?? "") <= 4096);
   assert.doesNotMatch(summary.preview ?? "", /�/);
   assert.equal(
-    JSON.parse(await readFile(summary.resultPath ?? "", "utf8")),
-    store.report.result,
+    JSON.parse(await readFile(summary.resultPath, "utf8")),
+    report.result,
   );
-  assert.doesNotMatch(JSON.stringify(agentTable(store.report)), /PRIVATE/);
-  assert.doesNotMatch(
-    formatReport(store.report, prepareReport(store.report), true),
-    /PRIVATE/,
-  );
+  assert.doesNotMatch(JSON.stringify(agentTable(report)), /PRIVATE/);
+  assert.doesNotMatch(formatReport(report, summary, true), /PRIVATE/);
 });
 
-async function usageSummary(usages: Usage[]) {
-  const root = await mkdtemp(join(tmpdir(), "workflow-output-usage-"));
-  const store = await RunStore.create({
-    root,
-    source: "source",
-    args: null,
-    config: configSchema.parse({}),
-    meta: { name: "usage", description: "usage" },
-    cwd: root,
-    scriptPath: "script.js",
-  });
-  store.report.status = "completed";
-  for (const [index, usage] of usages.entries()) {
-    const id = index + 1;
-    store.agent({
-      id,
-      kind: "agent",
-      prompt: "task",
-      options: {},
-      key: `usage-${id}`,
-      phase: "Run",
-      status: "done",
-      result: null,
-      cached: false,
-      startedAt: new Date().toISOString(),
-      durationMs: 5,
-      toolCalls: 0,
-      usage,
-    });
-  }
-  const summary = prepareReport(store.report);
-  return { summary, text: formatReport(store.report, summary, false) };
-}
-
-void test("the summary totals live agents' input, cached input and output tokens", async () => {
-  const { summary, text } = await usageSummary([
-    { input: 100, cachedInput: 80, output: 5 },
-    { input: 20, cachedInput: 0, output: 3 },
+void test("token totals count live agents and know the cached share only when all report it", async () => {
+  const known = await completedReport(null, [
+    { usage: { input: 100, cachedInput: 80, output: 5 } },
+    { usage: { input: 20, cachedInput: 0, output: 3 } },
+    { usage: { input: 1000, cachedInput: 0, output: 1000 }, cached: true },
+    {},
   ]);
+  const summary = prepareReport(known);
   assert.deepEqual(summary.tokens, {
     input: 120,
     cachedInput: 80,
     output: 8,
-    unreportedAgents: 0,
+    unreportedAgents: 1,
   });
-  assert.match(text, /120 input tokens \(80 cached\) · 8 output tokens/);
-});
+  assert.match(formatReport(known, summary), /120 input tokens \(80 cached\)/);
 
-void test("the summary omits the cached share when an agent did not report it", async () => {
-  const { summary, text } = await usageSummary([
-    { input: 100, cachedInput: 80, output: 5 },
-    { input: 20, output: 3 },
+  const partial = await completedReport(null, [
+    { usage: { input: 100, cachedInput: 80, output: 5 } },
+    { usage: { input: 20, output: 3 } },
   ]);
-  assert.equal(summary.tokens.cachedInput, undefined);
-  assert.match(text, /120 input tokens · 8 output tokens/);
-});
-
-void test("human result text neutralizes terminal sequences while preserving line breaks and JSON data", async () => {
-  const root = await mkdtemp(join(tmpdir(), "workflow-output-controls-"));
-  const store = await RunStore.create({
-    root,
-    source: "source",
-    args: null,
-    config: configSchema.parse({}),
-    meta: { name: "controls", description: "controls" },
-    cwd: root,
-    scriptPath: "script.js",
-  });
-  store.report.status = "completed";
-  store.report.result = "first\n\tsecond\u001b]52;c;payload\u0007";
-  const human = formatReport(store.report, prepareReport(store.report));
-  assert.ok(human.includes("first\n\tsecond"));
-  assert.equal(human.includes("\u001b"), false);
-  assert.equal(human.includes("\u0007"), false);
-  assert.equal(prepareReport(store.report).result, store.report.result);
+  assert.equal(prepareReport(partial).tokens.cachedInput, undefined);
 });

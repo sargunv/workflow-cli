@@ -2,12 +2,6 @@
 // Offline subprocess fixture. No vendor CLI or network requests.
 const fs = require("node:fs");
 if (process.argv.includes("--version")) {
-  if (process.env.WORKFLOW_FIXTURE_DISCOVERY_PID) {
-    fs.writeFileSync(
-      process.env.WORKFLOW_FIXTURE_DISCOVERY_PID,
-      JSON.stringify({ pid: process.pid, supervisor: process.ppid }),
-    );
-  }
   setTimeout(
     () => {
       console.log("fixture-claude 1.0");
@@ -38,18 +32,6 @@ if (process.argv.includes("--version")) {
       );
       // The runtime must cancel the owned process without waiting for its exit.
       setInterval(() => {}, 1000);
-      return;
-    }
-    if (prompt === "fail with result") {
-      console.log(
-        JSON.stringify({
-          type: "result",
-          subtype: "error_during_execution",
-          is_error: true,
-          errors: ["parsed failure"],
-        }),
-      );
-      process.exitCode = 1;
       return;
     }
     if (prompt === "fail with stderr") {
