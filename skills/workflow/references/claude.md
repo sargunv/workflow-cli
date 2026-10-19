@@ -1,12 +1,13 @@
 # Claude model selection
 
-Last checked 2026-10-13. At the time of writing, Haiku 5.5, Sonnet 5.5, Opus
-5.5, and Fable 5.1 are the latest Claude models.
+These are opinionated defaults for the Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable
+5.1 generation. Prefer newer models in the same tier when `workflow info` lists
+them.
 
 Haiku is fast and cheap. Use Haiku for extraction, summaries, or small bounded
 assignments.
 
-Sonnet is a good balance of cost and price. Use sonnet for straightforward
+Sonnet is a good balance of capability and price. Use Sonnet for straightforward
 coding assignments.
 
 Opus is highly capable and reasonably priced. Use Opus for difficult debugging,

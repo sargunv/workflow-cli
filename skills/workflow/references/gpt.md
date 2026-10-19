@@ -1,7 +1,8 @@
 # GPT model selection
 
-Last checked 2026-10-13. At the time of writing, 6 Luna, 6.1 Sol, and 6 Astra
-are the latest GPT models.
+These are opinionated defaults for the GPT-6 Luna, GPT-6.1 Sol and GPT-6 Astra
+generation. Prefer newer models in the same tier when `workflow info` lists
+them.
 
 Luna is fast and cheap. Use Luna for extraction, summaries, or small bounded
 assignments at volume.
@@ -11,9 +12,8 @@ Sol for routine implementation through complex technical work or scoped
 refactoring, or for any computer use.
 
 Astra is slow, expensive, but _highly_ capable. Use Astra for architecture
-decisions or difficult diagnosis especially when you have hard-to-reproduce
-bugs. Astra can often diagnose the bug correctly by reading all relevant
-sources.
+decisions or difficult diagnosis, especially for hard-to-reproduce bugs. Astra
+can often diagnose a bug correctly by reading all relevant sources.
 
 If selecting Astra for a workflow, get explicit authorization from the user
 first; don't surprise them by burning Astra tokens.

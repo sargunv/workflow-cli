@@ -1,100 +1,94 @@
 # Workflow
 
-Run deterministic JavaScript orchestration across coding agent harnesses.
-Scripts fan work out, verify outputs, and replay unchanged calls after edits.
-Claude, Codex, and Cursor use their headless CLIs; OpenCode, Kimi, and Qwen use
-native ACP.
+A CLI that runs JavaScript workflow scripts across coding agents. A script fans
+tasks out to leaf agents, verifies their output and returns structured data; the
+agents can be Claude Code, Codex or Cursor through their headless CLIs, or
+OpenCode, Kimi or Qwen through ACP. Scripts run in a deterministic QuickJS
+sandbox and every agent call is journaled, so after editing a script you can
+resume a run and replay its calls up to the first change; everything from there
+on runs live. The script API follows Claude Code's Workflow tool.
 
-See [implementation status](docs/STATUS.md) for what is implemented, what is
-deferred, and how to verify it.
+## Example
 
-## Install from this checkout
+```js
+export const meta = {
+  name: "review",
+  description: "Find a bug in each file, then try to refute it",
+};
 
-Install [mise](https://mise.jdx.dev), then:
+return pipeline(
+  args.files,
+  (file) =>
+    agent(`Report the most serious bug in ${file}.`, {
+      label: file,
+      toolPolicy: "read-only",
+    }),
+  (bug, file) =>
+    bug &&
+    agent(`Try to disprove this report on ${file}: ${bug}`, {
+      toolPolicy: "read-only",
+    }),
+);
+```
+
+```sh
+workflow run review.js --backend claude --model <model from workflow info> \
+  --args '{"files":["/repo/src/cache.ts","/repo/src/queue.ts"]}'
+```
+
+Each file gets its own finder agent, and each verifier starts as soon as its
+finder returns; a failed agent returns `null`. Live progress goes to stderr and
+the result to stdout. The run is recorded under `.workflow/runs/`; edit the
+script and pass `--resume <run-id>` to replay calls from the journal until the
+first changed one; later calls run live.
+
+## Install
+
+The package is not published yet. Install [mise](https://mise.jdx.dev), then
+build and install from a checkout:
 
 ```sh
 mise trust
 mise install
-mise run build
-node dist/cli.js --help
-```
-
-The CLI requires Node 24 or later and macOS or Linux (Windows uses WSL). Install
-and authenticate the vendor CLIs you intend to use. `workflow info` detects
-their binaries, capabilities, and model catalogs. Discovery can create vendor
-ACP sessions but sends no agent prompts. Backend sessions may persist in the
-vendor's own storage.
-
-To install the built package locally:
-
-```sh
 mise x -- pnpm pack
 npm install --global ./sargunv-workflow-0.1.0.tgz
-workflow info
-workflow skill --install .claude/skills/workflow
+workflow skill --install ~/.claude/skills/workflow
 ```
 
-The [bundled skill](skills/workflow/SKILL.md) documents the complete script API,
-workflow patterns, and harness/model selection. Installation copies the whole
-skill directory, including its Claude and GPT references. Reinstalling updates
-bundled files and preserves unrelated files in the destination. `workflow skill
---print` prints only the `SKILL.md` entrypoint; install the skill to make its
-linked references available locally. The
-[runnable recipe library](examples/README.md) includes all eight review and
-convergence patterns, with documented inputs and offline behavior tests.
+Workflow requires Node 24 or later on macOS or Linux (use WSL on Windows).
+Install and authenticate the agent CLIs you want to use, then run `workflow
+info` to see which backends, models, effort levels and tool policies are
+available.
 
-## Run and inspect
+## Commands
 
-Use an available backend and model from `workflow info`. Claude lists aliases;
-full model IDs accepted by its CLI also work. `run --backend` and `run --model`
-set run defaults; explicit agent/profile selections can override them:
+| Command                                   | Purpose                                                    |
+| ----------------------------------------- | ---------------------------------------------------------- |
+| `workflow info`                           | Detect installed backends and their capabilities           |
+| `workflow run <script>`                   | Run a script file, or `-` for stdin                        |
+| `workflow run <script> --background`      | Return a run ID after preflight and keep running           |
+| `workflow run <script> --resume <run-id>` | Replay a previous run up to the first change               |
+| `workflow wait <run-id>`                  | Follow a background run and print its result               |
+| `workflow show <run-id>`                  | Summarize a run; `--agent <id> [--transcript]` drills in   |
+| `workflow journal <run-id>`               | Print the raw agent result journal                         |
+| `workflow skip <run-id> <agent-id>`       | Skip one queued or running agent                           |
+| `workflow stop <run-id>`                  | Cancel a run and wait for its workers to shut down         |
+| `workflow skill --install <directory>`    | Install the authoring skill into a harness skill directory |
 
-```sh
-workflow run ./examples/hello.js --args '{"backend":"claude","model":"claude-haiku-4-5-20251001"}'
-workflow run ./examples/hello.js --background --args '{"backend":"claude","model":"claude-haiku-4-5-20251001"}'
-workflow wait wf_012345abcdef
-workflow show wf_012345abcdef
-workflow skip wf_012345abcdef 1
-workflow stop wf_012345abcdef
-workflow show wf_012345abcdef --agent 1 --transcript
-workflow journal wf_012345abcdef
-workflow run ./examples/hello.js --resume wf_012345abcdef
-```
+`run` accepts `--args <json>` or `--args-file <path>`, run defaults `--backend`
+and `--model`, and `--json` for NDJSON events. Run and inspection commands take
+`--cwd` for the agent working directory and `--runs-dir` for run storage. Add
+`.workflow/` to your `.gitignore`.
 
-`--args-file` reads JSON input from disk. `run -` reads a script from stdin.
-`--json` emits NDJSON events and a compact final report. Terminal progress goes
-to stderr; results go to stdout. Large results spill to a file with a bounded
-preview. Background launch returns a run ID after preflight. `wait` shows live
-progress; Ctrl-C stops that view while the run continues. `stop` waits for
-worker cleanup, and `skip` targets one queued or running leaf. Repeated signals
-to foreground runs remain cancellation requests and do not bypass cleanup.
-
-Confirmed Claude/Codex subscription refusals also stop the run and report
-limit/reset details. Resume after access returns; completed prefix calls replay
-and the interrupted suffix runs live. Workflow does not wait or retry
-automatically.
-
-Add `.workflow/` to your repository's `.gitignore`. Run records live in
-`.workflow/runs/` under the agent working directory; use `--runs-dir` to choose
-another location. Agent working directories default to the current directory and
-can be set with `--cwd`. Inspection/control commands accept the same `--cwd` and
-`--runs-dir` options. Run control uses a local TCP connection authenticated with
-a per-run secret stored in its private directory; stored PIDs are never used to
-signal a different process.
-
-Agents run without approval prompts. Read-only tool policies are enforced only
-on backends that advertise support; unsupported restrictions fail explicitly.
-Use worktree isolation for parallel edits and a container or VM for untrusted
-repositories. Worktrees start at HEAD and retain changed or committed work for
-review. Resume does not make external edits transactional; inspect the journal
-and retained work before replaying an interrupted editing task.
+Agents run without approval prompts. Use `toolPolicy: 'read-only'` for review
+work on backends that enforce it, `isolation: 'worktree'` for parallel edits,
+and a container or VM for untrusted repositories.
 
 ## Configuration
 
-Global configuration lives at `$XDG_CONFIG_HOME/workflow/config.json`,
-defaulting to `~/.config/workflow/config.json`. `.workflow/config.json` in the
-working directory overrides global fields; `defaults`, `transport`, `sandbox`
-and each named profile merge field by field. Run flags override those defaults.
+Global settings live in `~/.config/workflow/config.json` (or under
+`$XDG_CONFIG_HOME`). `.workflow/config.json` in the working directory overrides
+them field by field, and run flags override both.
 
 ```json
 {
@@ -103,47 +97,22 @@ and each named profile merge field by field. Run flags override those defaults.
   "defaults": { "effort": "medium" },
   "profiles": {
     "reviewer": {
-      "backend": "claude",
       "effort": "high",
       "toolPolicy": "read-only",
       "systemAppend": "Report only findings supported by concrete evidence."
     }
   },
-  "sharedPaths": [{ "path": "node_modules", "mode": "symlink" }],
-  "schemaRetries": 2,
-  "schemaStrategy": "auto",
-  "sandbox": { "memoryBytes": 67108864, "instructions": 100000 },
-  "transport": {
-    "agentTimeoutMs": 3600000,
-    "discoveryTimeoutMs": 20000,
-    "launchTimeoutMs": 120000
-  }
+  "sharedPaths": [{ "path": "node_modules", "mode": "symlink" }]
 }
 ```
 
-Worktree shared paths are opt-in and repository-relative. `copy` duplicates
-local state; `symlink` shares writable state with the parent. Prefer copying
-anything that must remain isolated. Profiles can be selected with `agent(prompt,
-{ profile: 'reviewer' })`; explicit call options take precedence. The top-level
-`backend` is the only run-level backend default; `defaults.backend` is rejected.
-Transport deadlines are configurable and reported by `info`; expiry cancels
-owned processes rather than leaving an approval prompt or a hung worker running.
-Budget enforcement and harness-specific `agentType` are deferred as described in
-[decisions](DECISIONS.md).
+Select a profile with `agent(prompt, { profile: 'reviewer' })`. Sandbox limits,
+transport deadlines and schema settings are described in the skill.
 
-## Development
+## Further reading
 
-```sh
-mise run test
-mise run check
-mise run typecheck
-mise run build
-```
-
-The committed suite invokes only fixtures and local test programs, never real
-agent subscriptions. See [VISION.md](VISION.md) for the product brief and
-[DECISIONS.md](DECISIONS.md) for implementation choices and limitations.
-
-To deliberately verify a changed backend against a real binary, run `mise run
-probe -- --backend <name> --model <cheap-model>`. This manual target consumes
-quota; it is separate from the offline suite and never retries a probe.
+- [Authoring skill](skills/workflow/SKILL.md): the script API, resume semantics
+  and model selection.
+- [Examples](examples/README.md): runnable review and convergence recipes.
+- [Roadmap](ROADMAP.md): what is not supported yet.
+- [AGENTS.md](AGENTS.md): development setup and design notes.

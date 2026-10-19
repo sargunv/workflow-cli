@@ -10,8 +10,6 @@
   "excludes": [
     "pnpm-lock.yaml",
     "mise.lock",
-    "VISION.md",
-    "BACKENDS.md",
     "test/fixtures/**",
     "examples/*.js"
   ],

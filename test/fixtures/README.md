@@ -1,40 +1,27 @@
 # Recorded protocol fixtures
 
-The Claude/Codex usage-limit fixtures are synthetic examples derived from
-Claude 2.1.296 embedded schemas and Codex exec source; dates and IDs are invented.
-[PR #11](https://github.com/sargunv/workflow-cli/pull/11) records the source evidence.
-No live quota probes were used.
+Fixtures are sanitized: session IDs, local paths, hook metadata, thought chunks
+and unrelated catalog fields are removed. Tests must never obtain fixtures by
+invoking a real agent.
 
-`claude-success.jsonl` is derived from a real Claude CLI 2.1.261 session using
-`claude-haiku-4-5-20251001` on 2026-09-05, run `wf_184c85f2d3b1`. It retains
-assistant text/tool-use blocks and terminal result/usage fields. Unrelated
-session identifiers, local paths, and hook metadata were removed. The source
-run is local under `.workflow/runs/` and is not committed.
+- `claude-success.jsonl`: Claude CLI 2.1.261 session, 2026-09-05.
+- `claude-read-only-schema.jsonl`: Claude CLI 2.1.261 with
+  `toolPolicy: 'read-only'` and native schema output, 2026-09-05.
+- `claude-usage-limit.jsonl`: synthetic, from Claude CLI 2.1.296 embedded
+  schemas; dates and IDs are invented.
+- `codex-success.jsonl`: Codex CLI 0.153.3 session, 2026-09-05.
+- `codex-models.json`: `codex debug models` from Codex CLI 0.153.3, 2026-09-05.
+- `codex-usage-limit.jsonl`: synthetic, from Codex exec source; dates and IDs
+  are invented.
+- `cursor-success.jsonl`: Cursor CLI 2026.09.02 session, 2026-09-05.
+- `cursor-models.txt`: `cursor-agent models` from Cursor CLI 2026.09.02,
+  2026-09-05.
+- `acp-opencode.jsonl`, `acp-kimi.jsonl`, `acp-qwen.jsonl`: ACP sessions with
+  both turns, 2026-09-05.
+- `qwen-model-config.json`: Qwen ACP config surfaces before and after selecting
+  Flash, 2026-09-05.
+- `qwen-session-config.json`: `models` and `configOptions` from a Qwen ACP
+  `session/new` response, 2026-09-05.
 
-`claude-read-only-schema.jsonl` records run `wf_b8189b9e3559` on the same
-CLI/model/date, using `toolPolicy: 'read-only'` and native schema output. The
-init event confirms exactly Glob, Grep, Read and StructuredOutput were exposed.
-It returned `{ok:true}` with 112 reported output tokens. The local original is
-under `.workflow/probes/`; identifiers, paths and hook metadata were removed.
-
-`codex-models.json` contains only model IDs, visibility, priority and reasoning
-fields from `codex debug models` 0.153.3 on 2026-09-05. No agent was invoked.
-Catalog prompts and unrelated fields were removed.
-
-The executable helpers under `test/helpers/` are synthetic offline servers.
-The ACP helper tests protocol handling and retained sessions; it is not evidence
-that any installed vendor accepts the same operations.
-
-`codex-success.jsonl`, `cursor-success.jsonl`, `acp-opencode.jsonl`,
-`acp-kimi.jsonl` and `acp-qwen.jsonl` are sanitized from the single successful
-benign-file probes run against the real backends on 2026-09-05.
-ACP records retain both turns. `qwen-model-config.json` preserves the configuration
-surfaces before and after selecting Flash, including its changed effort options;
-the synthetic ACP helper replays these surfaces for the selection regression.
-Unrelated IDs, paths, thought chunks, hooks and provider catalogs were removed.
-Tests must never obtain fixtures by invoking a real agent automatically.
-
-`cursor-models.txt` is the literal `cursor-agent models` catalog from the same
-2026-09-05 discovery, without prompts or session data. `qwen-session-config.json`
-retains `models` and `configOptions` from the recorded Qwen session/new response;
-it covers the separate model catalog when the model config has no options.
+The helpers under `test/helpers/` are synthetic servers; they test protocol
+handling, not what any installed vendor accepts.

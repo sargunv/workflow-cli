@@ -2,8 +2,7 @@
 
 Run `workflow info` first and choose an installed backend and model. Every
 review recipe requests `toolPolicy: 'read-only'`; use a backend that advertises
-it (Claude, Codex, or Cursor in the verified installation). ACP backends
-explicitly reject that restriction. These scripts inherit the run-level
+it. ACP backends reject that restriction. These scripts inherit the run-level
 backend/model; they contain no vendor-specific model names. Live runs consume
 subscription quota.
 
@@ -37,7 +36,5 @@ duplicates with different IDs may still require a separate cross-finding
 deduplication stage. A majority or winning score is evidence to assess, not
 proof of truth.
 
-The offline `test/examples.test.ts` executes these exact files in the real
-sandbox with controlled agent responses and schema validation. It covers failed
-votes, ties, missing coverage, rejected-identity convergence, duplicate
-findings, explicit limits and omissions. It invokes no real agents.
+`test/examples.test.ts` runs these files in the sandbox against controlled agent
+responses.
