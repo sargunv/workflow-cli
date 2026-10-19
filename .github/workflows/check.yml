@@ -17,4 +17,4 @@ jobs:
       - run: mise run typecheck
       - run: mise run test
       - run: mise run build
-      - run: mise x -- pnpm pack
+      - run: mise run smoke
