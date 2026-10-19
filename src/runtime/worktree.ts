@@ -12,6 +12,7 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
+import type { SharedPath } from "../config.js";
 import { capture } from "../drivers/process.js";
 import { isErrno } from "../types.js";
 import type { WorktreeRecord } from "../types.js";
@@ -27,11 +28,6 @@ export class WorktreeSetupError extends Error {
       { cause },
     );
   }
-}
-
-export interface SharedPath {
-  path: string;
-  mode: "copy" | "symlink";
 }
 
 function inside(root: string, path: string): boolean {

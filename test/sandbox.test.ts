@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { defaultSandbox } from "../src/config.js";
+import { itemsPerCall } from "../src/runtime/limits.js";
 import { executeScript } from "../src/runtime/sandbox.js";
 import type { SandboxHost } from "../src/runtime/sandbox.js";
 import { compileSchema } from "../src/runtime/schema.js";
@@ -114,16 +116,19 @@ void test("parallel handles failures and enforces explicit item limit", async ()
   );
   await assert.rejects(
     executeScript(
-      source("return parallel(Array(4097).fill(() => 1))"),
+      source(`return parallel(Array(${itemsPerCall + 1}).fill(() => 1))`),
       null,
       host(),
     ),
-    /4096/,
+    new RegExp(`at most ${itemsPerCall} functions`),
   );
 });
 void test("runaway synchronous and microtask loops are interrupted", async () => {
   await assert.rejects(
-    executeScript(source("while(true) {}"), null, host(), { instructions: 20 }),
+    executeScript(source("while(true) {}"), null, host(), {
+      ...defaultSandbox,
+      interruptChecks: 20,
+    }),
     /interrupted/,
   );
   await assert.rejects(
@@ -131,7 +136,7 @@ void test("runaway synchronous and microtask loops are interrupted", async () =>
       source("while(true) { await Promise.resolve(); }"),
       null,
       host(),
-      { instructions: 20 },
+      { ...defaultSandbox, interruptChecks: 20 },
     ),
     /interrupted/,
   );
@@ -191,6 +196,8 @@ void test("bootstrap closures and temporary host globals are not reachable by wo
     "pending",
     "argsJson",
     "metaJson",
+    "itemsPerCall",
+    "itemsPerCallJson",
     "settle",
     "encodeResult",
     "__dispatch",
@@ -198,6 +205,7 @@ void test("bootstrap closures and temporary host globals are not reachable by wo
     "__notify",
     "__argsJson",
     "__metaJson",
+    "__itemsPerCallJson",
   ];
   const expression = privateNames.map((name) => `typeof ${name}`).join(", ");
   assert.deepEqual(

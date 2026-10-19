@@ -7,18 +7,21 @@
   const notify = globalThis.__notify;
   const argsJson = globalThis.__argsJson;
   const metaJson = globalThis.__metaJson;
+  const itemsPerCallJson = globalThis.__itemsPerCallJson;
 
   delete globalThis.__dispatch;
   delete globalThis.__validate;
   delete globalThis.__notify;
   delete globalThis.__argsJson;
   delete globalThis.__metaJson;
+  delete globalThis.__itemsPerCallJson;
 
   const stringify = JSON.stringify;
   const parse = JSON.parse;
   const getPrototypeOf = Object.getPrototypeOf;
   const objectPrototype = Object.prototype;
   const isArray = Array.isArray;
+  const itemsPerCall = parse(itemsPerCallJson);
 
   function encode(value) {
     return stringify(value, (_key, item) => {
@@ -117,8 +120,10 @@
   install("log", (text) => notify(encode("log"), encode(text)));
 
   install("parallel", async (thunks) => {
-    if (!Array.isArray(thunks) || thunks.length > 4096) {
-      throw new Error("parallel requires an array of at most 4096 functions");
+    if (!Array.isArray(thunks) || thunks.length > itemsPerCall) {
+      throw new Error(
+        `parallel requires an array of at most ${itemsPerCall} functions`,
+      );
     }
 
     return Promise.all(
@@ -133,8 +138,10 @@
   });
 
   install("pipeline", async (items, ...stages) => {
-    if (!Array.isArray(items) || items.length > 4096) {
-      throw new Error("pipeline requires an array of at most 4096 items");
+    if (!Array.isArray(items) || items.length > itemsPerCall) {
+      throw new Error(
+        `pipeline requires an array of at most ${itemsPerCall} items`,
+      );
     }
 
     return Promise.all(

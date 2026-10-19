@@ -203,8 +203,9 @@ final report.
 
 `workflow info` reports configured limits and capabilities:
 
-- `sandbox`: `memoryBytes` (default 64 MiB) and `instructions` (default
-  100,000). Stack size is 512 KiB.
+- `sandbox`: `memoryBytes` (default 64 MiB) and `interruptChecks` (default
+  100,000), a per-run cap on QuickJS's periodic interrupt polls rather than an
+  instruction count. Stack size is 512 KiB.
 - `transport`: `agentTimeoutMs` (per attempt; no deadline by default, so use
   `skip` for a stuck agent), `discoveryTimeoutMs` (default 20,000), and
   `launchTimeoutMs` (default 120,000, for background readiness).

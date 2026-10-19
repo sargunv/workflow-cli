@@ -11,6 +11,8 @@ import { errorText } from "../types.js";
 import { atomicJson, readReport, runPath } from "./store.js";
 import type { Report } from "./store.js";
 
+const maxMessageLength = 4096;
+
 const endpointSchema = z
   .object({
     port: z.number().int().min(1).max(65535),
@@ -59,7 +61,7 @@ export async function startControl(
       }
 
       input += chunk;
-      if (input.length > 4096) {
+      if (input.length > maxMessageLength) {
         socket.destroy();
 
         return;
@@ -192,7 +194,7 @@ export async function controlRun(
     );
     socket.on("data", (chunk: string) => {
       input += chunk;
-      if (input.length > 4096) {
+      if (input.length > maxMessageLength) {
         finish(new Error("Invalid run control response"));
 
         return;

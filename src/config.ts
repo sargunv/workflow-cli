@@ -25,6 +25,36 @@ export type TransportSettings = z.infer<typeof transportSchema>;
 
 export const defaultTransport = transportSchema.parse({});
 
+export const sandboxSchema = z
+  .object({
+    memoryBytes: z
+      .number()
+      .int()
+      .min(1_048_576)
+      .max(1_073_741_824)
+      .default(67_108_864),
+    // QuickJS calls the interrupt handler periodically, not per instruction,
+    // and the count accumulates for the whole run.
+    interruptChecks: z
+      .number()
+      .int()
+      .min(100)
+      .max(100_000_000)
+      .default(100_000),
+  })
+  .strict();
+
+export type SandboxSettings = z.infer<typeof sandboxSchema>;
+
+export const defaultSandbox = sandboxSchema.parse({});
+
+export const sharedPath = z.object({
+  path: z.string(),
+  mode: z.enum(["copy", "symlink"]),
+});
+
+export type SharedPath = z.infer<typeof sharedPath>;
+
 export const configSchema = z
   .object({
     backend: backendName.default("claude"),
@@ -37,25 +67,9 @@ export const configSchema = z
     defaults: agentOptions
       .omit({ backend: true, profile: true, agentType: true })
       .strict()
-      .default({}),
-    transport: transportSchema.default(defaultTransport),
-    sandbox: z
-      .object({
-        memoryBytes: z
-          .number()
-          .int()
-          .min(1_048_576)
-          .max(1_073_741_824)
-          .default(67_108_864),
-        instructions: z
-          .number()
-          .int()
-          .min(100)
-          .max(100_000_000)
-          .default(100_000),
-      })
-      .strict()
-      .default({ memoryBytes: 67_108_864, instructions: 100_000 }),
+      .prefault({}),
+    transport: transportSchema.prefault({}),
+    sandbox: sandboxSchema.prefault({}),
     schemaStrategy: z.enum(["auto", "prompted"]).default("auto"),
     profiles: z
       .record(
@@ -66,9 +80,7 @@ export const configSchema = z
           .strict(),
       )
       .default({}),
-    sharedPaths: z
-      .array(z.object({ path: z.string(), mode: z.enum(["copy", "symlink"]) }))
-      .default([]),
+    sharedPaths: z.array(sharedPath).default([]),
     schemaRetries: z.number().int().min(0).max(5).default(2),
   })
   .strict();
