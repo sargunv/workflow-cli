@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import { inspectReport } from "../src/runtime/control.js";
-import { command, final, onlyRunId, project, spawnCli } from "./helpers/cli.js";
-import { fixturePath } from "./helpers/common.js";
+import { inspectReport } from "../src/runtime/control.ts";
+import { command, final, onlyRunId, project, spawnCli } from "./helpers/cli.ts";
+import { fixturePath } from "./helpers/common.ts";
 
 void test("skill installation copies linked references and updates bundled files", async () => {
   const p = await project("");

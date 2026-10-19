@@ -6,10 +6,10 @@ import { join } from "node:path";
 
 import { Command } from "commander";
 
-import { defaultTransport } from "../src/config.js";
-import { createDrivers } from "../src/drivers/index.js";
-import { backendName, effort, errorText } from "../src/types.js";
-import type { DriverSession } from "../src/types.js";
+import { defaultTransport } from "../src/config.ts";
+import { createDrivers } from "../src/drivers/index.ts";
+import { backendName, effort, errorText } from "../src/types.ts";
+import type { DriverSession } from "../src/types.ts";
 
 const program = new Command()
   .description("One deliberate live backend probe; consumes subscription quota")

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { defaultSandbox } from "../src/config.js";
-import { itemsPerCall } from "../src/runtime/limits.js";
-import { executeScript } from "../src/runtime/sandbox.js";
-import type { SandboxHost } from "../src/runtime/sandbox.js";
-import { compileSchema } from "../src/runtime/schema.js";
-import { parseScript } from "../src/runtime/script.js";
-import { host, script, text } from "./helpers/sandbox.js";
+import { defaultSandbox } from "../src/config.ts";
+import { itemsPerCall } from "../src/runtime/limits.ts";
+import { executeScript } from "../src/runtime/sandbox.ts";
+import type { SandboxHost } from "../src/runtime/sandbox.ts";
+import { compileSchema } from "../src/runtime/schema.ts";
+import { parseScript } from "../src/runtime/script.ts";
+import { host, script, text } from "./helpers/sandbox.ts";
 
 const run = (body: string, overrides: Partial<SandboxHost> = {}) =>
   executeScript(script(body), null, host(overrides));

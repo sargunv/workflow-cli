@@ -1,8 +1,8 @@
-import { loadConfig } from "./config.js";
-import { createDrivers } from "./drivers/index.js";
-import { notice } from "./notice.js";
-import { agentCap, itemsPerCall, stackBytes } from "./runtime/limits.js";
-import type { Detection, ModelInfo } from "./types.js";
+import { loadConfig } from "./config.ts";
+import { createDrivers } from "./drivers/index.ts";
+import { notice } from "./notice.ts";
+import { agentCap, itemsPerCall, stackBytes } from "./runtime/limits.ts";
+import type { Detection, ModelInfo } from "./types.ts";
 
 export async function inspectInstallation(cwd: string) {
   const config = await loadConfig(cwd);

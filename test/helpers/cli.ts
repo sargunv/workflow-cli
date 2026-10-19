@@ -6,8 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import { inspectReport } from "../../src/runtime/control.js";
-import { installFake, tempDir, waitFor } from "./common.js";
+import { inspectReport } from "../../src/runtime/control.ts";
+import { installFake, tempDir, waitFor } from "./common.ts";
 
 const cli = fileURLToPath(new URL("../../src/cli.ts", import.meta.url));
 

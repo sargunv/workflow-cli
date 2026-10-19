@@ -1,7 +1,7 @@
 import { Ajv } from "ajv";
 import type { ValidateFunction } from "ajv";
 
-import type { Json } from "../types.js";
+import type { Json } from "../types.ts";
 
 const ajv = new Ajv({
   strict: false,

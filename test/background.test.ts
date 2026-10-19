@@ -5,8 +5,8 @@ import { test } from "node:test";
 
 import { z } from "zod";
 
-import { controlRun, inspectReport } from "../src/runtime/control.js";
-import { waitForRun } from "../src/wait.js";
+import { controlRun, inspectReport } from "../src/runtime/control.ts";
+import { waitForRun } from "../src/wait.ts";
 import {
   command,
   final,
@@ -14,8 +14,8 @@ import {
   onlyRunId,
   project,
   runningAgents,
-} from "./helpers/cli.js";
-import { alive, exited, waitFor } from "./helpers/common.js";
+} from "./helpers/cli.ts";
+import { alive, exited, waitFor } from "./helpers/common.ts";
 
 void test("background skip and stop control the exact run; show includes active prompts", async () => {
   // The flag overrides a config that would leave only one agent running.

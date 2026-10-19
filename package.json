@@ -18,10 +18,10 @@
   "engines": { "node": ">=24" },
   "packageManager": "pnpm@11.25.0",
   "scripts": {
-    "build": "tsx scripts/build.ts",
+    "build": "node scripts/build.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
-    "dev": "tsx src/cli.ts",
+    "test": "node --test test/*.test.ts",
+    "dev": "node src/cli.ts",
     "prepack": "pnpm run build"
   },
   "dependencies": {
@@ -34,7 +34,6 @@
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
-    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vite-plus": "^0.3.3"
   }

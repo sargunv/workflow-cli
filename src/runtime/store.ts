@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import type { Config } from "../config.js";
+import type { Config } from "../config.ts";
 import {
   agentOptions,
   agentRecord,
@@ -18,8 +18,8 @@ import {
   jsonValue,
   metadata,
   usageLimit,
-} from "../types.js";
-import type { AgentRecord, Json, Metadata } from "../types.js";
+} from "../types.ts";
+import type { AgentRecord, Json, Metadata } from "../types.ts";
 
 const activeAgentSchema = z.object({
   id: z.number().int().positive(),
@@ -106,10 +106,14 @@ interface RunStoreOptions {
  * terminal result. journal.jsonl records only completed agents; transcripts
  * retain driver events. */
 export class RunStore {
-  private constructor(
-    readonly directory: string,
-    readonly report: Report,
-  ) {}
+  readonly directory: string;
+
+  readonly report: Report;
+
+  private constructor(directory: string, report: Report) {
+    this.directory = directory;
+    this.report = report;
+  }
 
   static async create(options: RunStoreOptions): Promise<RunStore> {
     const runId = `wf_${randomBytes(6).toString("hex")}`;

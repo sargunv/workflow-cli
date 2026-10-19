@@ -1,8 +1,8 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { ActiveAgent, Report } from "./runtime/store.js";
-import type { AgentRecord } from "./types.js";
+import type { ActiveAgent, Report } from "./runtime/store.ts";
+import type { AgentRecord } from "./types.ts";
 
 export function terminalText(text: string): string {
   return Array.from(text, (char) => {

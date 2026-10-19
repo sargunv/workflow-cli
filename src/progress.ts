@@ -1,6 +1,6 @@
-import { terminalText } from "./output.js";
-import type { RunEvent } from "./runtime/run.js";
-import type { Report } from "./runtime/store.js";
+import { terminalText } from "./output.ts";
+import type { RunEvent } from "./runtime/run.ts";
+import type { Report } from "./runtime/store.ts";
 
 interface Row {
   id: number;
@@ -79,11 +79,17 @@ export class Progress {
 
   private timer: NodeJS.Timeout;
 
+  private json: boolean;
+
+  private surface: ProgressSurface;
+
   constructor(
-    private json: boolean,
-    private surface: ProgressSurface = terminal,
+    json: boolean,
+    surface: ProgressSurface = terminal,
     intervalMs = 250,
   ) {
+    this.json = json;
+    this.surface = surface;
     this.timer = setInterval(() => this.flush(), intervalMs);
     this.timer.unref();
   }

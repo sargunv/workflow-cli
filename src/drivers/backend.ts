@@ -1,6 +1,6 @@
-import type { Detection, DriverRequest } from "../types.js";
-import { errorText } from "../types.js";
-import { capture, findBinary } from "./process.js";
+import type { Detection, DriverRequest } from "../types.ts";
+import { errorText } from "../types.ts";
+import { capture, findBinary } from "./process.ts";
 
 /** Locates the executable and reads its version; `probe` runs only if both succeed. */
 export async function detectBackend(

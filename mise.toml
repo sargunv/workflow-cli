@@ -30,14 +30,14 @@ run = "pnpm run typecheck"
 
 [tasks.smoke]
 description = "Pack, install and run the package against a fake backend"
-run = "pnpm exec tsx scripts/smoke.ts"
+run = "node scripts/smoke.ts"
 
 [tasks.dev]
 run = "pnpm dev"
 
 [tasks.probe]
 description = "Manually probe one real backend; consumes quota (requires --backend and --model)"
-run = "pnpm exec tsx scripts/probe.ts"
+run = "node scripts/probe.ts"
 
 [hooks]
 postinstall = ["hk install --mise"]

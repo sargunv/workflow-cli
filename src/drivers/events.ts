@@ -1,13 +1,13 @@
 import { z } from "zod";
 
-import { jsonValue } from "../types.js";
+import { jsonValue } from "../types.ts";
 import type {
   DriverEvent,
   DriverResult,
   Json,
   Usage,
   UsageLimit,
-} from "../types.js";
+} from "../types.ts";
 
 const record = z.record(z.string(), z.unknown());
 
@@ -88,7 +88,11 @@ function isTurnUsage(tokens: Record<string, unknown>): boolean {
 class Progress {
   private tools = new Set<string>();
 
-  constructor(private emit: (event: DriverEvent) => void) {}
+  private emit: (event: DriverEvent) => void;
+
+  constructor(emit: (event: DriverEvent) => void) {
+    this.emit = emit;
+  }
 
   activity(text: string) {
     if (text) {
@@ -119,7 +123,10 @@ export abstract class CliEventParser {
 
   private usageLimit: UsageLimit | undefined;
 
-  constructor(private emit: (event: DriverEvent) => void) {
+  private emit: (event: DriverEvent) => void;
+
+  constructor(emit: (event: DriverEvent) => void) {
+    this.emit = emit;
     this.progress = new Progress(emit);
   }
 

@@ -1,8 +1,8 @@
-import { defaultTransport } from "../config.js";
-import type { TransportSettings } from "../config.js";
-import type { BackendName, Driver } from "../types.js";
-import { AcpDriver } from "./acp.js";
-import { CliDriver } from "./cli.js";
+import { defaultTransport } from "../config.ts";
+import type { TransportSettings } from "../config.ts";
+import type { BackendName, Driver } from "../types.ts";
+import { AcpDriver } from "./acp.ts";
+import { CliDriver } from "./cli.ts";
 
 export function createDrivers(
   transport: TransportSettings = defaultTransport,

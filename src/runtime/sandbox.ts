@@ -7,12 +7,12 @@ import type {
   QuickJSRuntime,
 } from "quickjs-emscripten";
 
-import { defaultSandbox } from "../config.js";
-import type { SandboxSettings } from "../config.js";
-import { errorText, jsonValue } from "../types.js";
-import type { Json } from "../types.js";
-import { itemsPerCall, stackBytes } from "./limits.js";
-import type { Script } from "./script.js";
+import { defaultSandbox } from "../config.ts";
+import type { SandboxSettings } from "../config.ts";
+import { errorText, jsonValue } from "../types.ts";
+import type { Json } from "../types.ts";
+import { itemsPerCall, stackBytes } from "./limits.ts";
+import type { Script } from "./script.ts";
 
 const guestSource = readFileSync(
   new URL("./guest.js", import.meta.url),
@@ -74,12 +74,21 @@ class GuestSession {
 
   private interrupted = false;
 
+  private runtime: QuickJSRuntime;
+
+  private host: SandboxHost;
+
+  private releaseExecution: (() => void) | undefined;
+
   constructor(
-    private runtime: QuickJSRuntime,
-    private host: SandboxHost,
+    runtime: QuickJSRuntime,
+    host: SandboxHost,
     limits: SandboxSettings,
-    private releaseExecution: (() => void) | undefined,
+    releaseExecution: (() => void) | undefined,
   ) {
+    this.runtime = runtime;
+    this.host = host;
+    this.releaseExecution = releaseExecution;
     runtime.setMemoryLimit(limits.memoryBytes);
     runtime.setMaxStackSize(stackBytes);
     runtime.setInterruptHandler(() => {

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { formatWorkflow } from "../scripts/format-examples.js";
-import { executeScript } from "../src/runtime/sandbox.js";
-import { parseScript } from "../src/runtime/script.js";
-import { host } from "./helpers/sandbox.js";
+import { formatWorkflow } from "../scripts/format-examples.ts";
+import { executeScript } from "../src/runtime/sandbox.ts";
+import { parseScript } from "../src/runtime/script.ts";
+import { host } from "./helpers/sandbox.ts";
 
 void test("example formatting preserves multiline literals and comment indentation and is idempotent", async () => {
   const comment = "/* Diagram:\n    parent\n      child\n  */";

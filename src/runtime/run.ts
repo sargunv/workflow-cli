@@ -6,7 +6,7 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { ValidateFunction } from "ajv";
 import { z } from "zod";
 
-import type { Config } from "../config.js";
+import type { Config } from "../config.ts";
 import {
   agentOptions,
   agentRecord,
@@ -15,7 +15,7 @@ import {
   errorText,
   isErrno,
   jsonValue,
-} from "../types.js";
+} from "../types.ts";
 import type {
   AgentOptions,
   AgentRecord,
@@ -24,18 +24,18 @@ import type {
   Detection,
   Json,
   UsageLimit,
-} from "../types.js";
-import { AgentExecution } from "./agent.js";
-import { startControl } from "./control.js";
-import { agentCap } from "./limits.js";
-import { Replay, readTrace } from "./replay.js";
-import { executeScript } from "./sandbox.js";
-import { compileSchema } from "./schema.js";
-import { parseScript, readScriptFile } from "./script.js";
-import type { Script } from "./script.js";
-import { Semaphore } from "./semaphore.js";
-import { atomicJson, RunStore, runPath } from "./store.js";
-import type { Report } from "./store.js";
+} from "../types.ts";
+import { AgentExecution } from "./agent.ts";
+import { startControl } from "./control.ts";
+import { agentCap } from "./limits.ts";
+import { Replay, readTrace } from "./replay.ts";
+import { executeScript } from "./sandbox.ts";
+import { compileSchema } from "./schema.ts";
+import { parseScript, readScriptFile } from "./script.ts";
+import type { Script } from "./script.ts";
+import { Semaphore } from "./semaphore.ts";
+import { atomicJson, RunStore, runPath } from "./store.ts";
+import type { Report } from "./store.ts";
 
 export interface RunEvent {
   type: string;
@@ -132,11 +132,16 @@ class WorkflowRun {
 
   private progressSave: NodeJS.Timeout | undefined;
 
-  constructor(
-    private readonly request: RunRequest,
-    private readonly script: Script,
-    readonly store: RunStore,
-  ) {
+  private readonly request: RunRequest;
+
+  private readonly script: Script;
+
+  readonly store: RunStore;
+
+  constructor(request: RunRequest, script: Script, store: RunStore) {
+    this.request = request;
+    this.script = script;
+    this.store = store;
     this.semaphore = new Semaphore(request.config.concurrency);
     this.replay = new Replay(
       join(this.store.directory, "replay.jsonl"),

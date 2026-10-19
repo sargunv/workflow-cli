@@ -14,8 +14,8 @@ import {
   createWorktree,
   finishWorktree,
   WorktreeSetupError,
-} from "../src/runtime/worktree.js";
-import { git, gitRepo, tempDir } from "./helpers/common.js";
+} from "../src/runtime/worktree.ts";
+import { git, gitRepo, tempDir } from "./helpers/common.ts";
 
 void test("finished worktrees are removed only when they hold nothing of value", async () => {
   const dir = await gitRepo(".workflow/\n.env\nlocal-cache/\n");

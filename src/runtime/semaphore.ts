@@ -11,10 +11,13 @@ export class Semaphore {
 
   private queue: Waiter[] = [];
 
-  constructor(private limit: number) {
+  private limit: number;
+
+  constructor(limit: number) {
     if (!Number.isInteger(limit) || limit < 1) {
       throw new Error("Concurrency must be positive");
     }
+    this.limit = limit;
   }
 
   acquire(signal: AbortSignal): Promise<() => void> {

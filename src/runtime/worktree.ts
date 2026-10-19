@@ -12,20 +12,20 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
-import type { SharedPath } from "../config.js";
-import { capture } from "../drivers/process.js";
-import { errorText, isErrno } from "../types.js";
-import type { WorktreeRecord } from "../types.js";
+import type { SharedPath } from "../config.ts";
+import { capture } from "../drivers/process.ts";
+import { errorText, isErrno } from "../types.ts";
+import type { WorktreeRecord } from "../types.ts";
 
 export class WorktreeSetupError extends Error {
-  constructor(
-    readonly record: WorktreeRecord,
-    cause: unknown,
-  ) {
+  readonly record: WorktreeRecord;
+
+  constructor(record: WorktreeRecord, cause: unknown) {
     super(
       `Worktree setup failed: ${errorText(cause)}; preserved ${record.path} (${record.branch})`,
       { cause },
     );
+    this.record = record;
   }
 }
 

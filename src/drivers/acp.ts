@@ -1,10 +1,10 @@
-import { defaultTransport } from "../config.js";
-import type { TransportSettings } from "../config.js";
+import { defaultTransport } from "../config.ts";
+import type { TransportSettings } from "../config.ts";
 import {
   effort as effortSchema,
   errorText,
   ProcessOwnershipError,
-} from "../types.js";
+} from "../types.ts";
 import type {
   Detection,
   Driver,
@@ -12,11 +12,11 @@ import type {
   DriverRequest,
   DriverResult,
   ModelInfo,
-} from "../types.js";
-import { version } from "../version.js";
-import { availableBinary, composePrompt, detectBackend } from "./backend.js";
-import { object, array, decode, string, AcpEventParser } from "./events.js";
-import { ManagedProcess } from "./process.js";
+} from "../types.ts";
+import { version } from "../version.ts";
+import { availableBinary, composePrompt, detectBackend } from "./backend.ts";
+import { object, array, decode, string, AcpEventParser } from "./events.ts";
+import { ManagedProcess } from "./process.ts";
 
 const backends = {
   opencode: { argv: ["acp"], usage: true },
@@ -43,14 +43,20 @@ class AcpConnection {
 
   private ended = false;
 
+  private emit: (event: DriverEvent) => void;
+
+  private transport: TransportSettings;
+
   constructor(
     binary: string,
     argv: string[],
     cwd: string,
     signal: AbortSignal,
-    private emit: (event: DriverEvent) => void,
-    private transport: TransportSettings = defaultTransport,
+    emit: (event: DriverEvent) => void,
+    transport: TransportSettings = defaultTransport,
   ) {
+    this.emit = emit;
+    this.transport = transport;
     this.process = new ManagedProcess(binary, argv, {
       cwd,
       signal,
@@ -261,10 +267,17 @@ function modelOptions(session: Record<string, unknown>): ModelInfo[] {
 export class AcpDriver implements Driver {
   private detection?: Detection;
 
+  readonly name: keyof typeof backends;
+
+  private transport: TransportSettings;
+
   constructor(
-    readonly name: keyof typeof backends,
-    private transport: TransportSettings = defaultTransport,
-  ) {}
+    name: keyof typeof backends,
+    transport: TransportSettings = defaultTransport,
+  ) {
+    this.name = name;
+    this.transport = transport;
+  }
 
   async detect(
     cwd: string,

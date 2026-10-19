@@ -12,8 +12,8 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { configSchema } from "./config.js";
-import { jsonValue } from "./types.js";
+import { configSchema } from "./config.ts";
+import { jsonValue } from "./types.ts";
 
 const launchSchema = z
   .object({

@@ -3,9 +3,9 @@ import { readFile } from "node:fs/promises";
 import { delimiter, dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
 
-import { AcpDriver } from "../src/drivers/acp.js";
-import type { DriverEvent, DriverRequest } from "../src/types.js";
-import { fixturePath, installFake, setEnv, tempDir } from "./helpers/common.js";
+import { AcpDriver } from "../src/drivers/acp.ts";
+import type { DriverEvent, DriverRequest } from "../src/types.ts";
+import { fixturePath, installFake, setEnv, tempDir } from "./helpers/common.ts";
 
 async function fixture(
   t: TestContext,

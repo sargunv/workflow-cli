@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 
-import { configSchema } from "../src/config.js";
-import { agentTable, prepareReport, formatReport } from "../src/output.js";
-import { Progress } from "../src/progress.js";
-import type { ProgressSurface } from "../src/progress.js";
-import { RunStore } from "../src/runtime/store.js";
-import type { Json, Usage } from "../src/types.js";
-import { tempDir } from "./helpers/common.js";
+import { configSchema } from "../src/config.ts";
+import { agentTable, prepareReport, formatReport } from "../src/output.ts";
+import { Progress } from "../src/progress.ts";
+import type { ProgressSurface } from "../src/progress.ts";
+import { RunStore } from "../src/runtime/store.ts";
+import type { Json, Usage } from "../src/types.ts";
+import { tempDir } from "./helpers/common.ts";
 
 function surface(tty: boolean) {
   let now = 0;

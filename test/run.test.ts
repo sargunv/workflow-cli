@@ -3,17 +3,17 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { configSchema } from "../src/config.js";
-import { runWorkflow } from "../src/runtime/run.js";
-import type { RunRequest } from "../src/runtime/run.js";
-import { errorText, ProcessOwnershipError } from "../src/types.js";
+import { configSchema } from "../src/config.ts";
+import { runWorkflow } from "../src/runtime/run.ts";
+import type { RunRequest } from "../src/runtime/run.ts";
+import { errorText, ProcessOwnershipError } from "../src/types.ts";
 import type {
   Detection,
   Driver,
   DriverRequest,
   DriverResult,
-} from "../src/types.js";
-import { git, gitRepo, tempDir } from "./helpers/common.js";
+} from "../src/types.ts";
+import { git, gitRepo, tempDir } from "./helpers/common.ts";
 
 const header =
   "export const meta = {name:'run-test',description:'Test the complete run lifecycle'};\n";

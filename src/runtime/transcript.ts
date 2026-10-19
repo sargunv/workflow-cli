@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { runPath } from "./store.js";
+import { runPath } from "./store.ts";
 
 const cacheLink = z
   .object({
