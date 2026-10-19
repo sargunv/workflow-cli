@@ -186,7 +186,7 @@ function storageCommand(
 }
 
 program
-  .name("workflow")
+  .name("workflow-cli")
   .description(
     "Deterministic multi-agent workflows across coding agent harnesses",
   )
@@ -213,7 +213,7 @@ storageCommand("run", "Agent working directory")
   .option("--args <json>", "JSON input")
   .option("--args-file <path>", "Read JSON input from a file")
   .option("--backend <name>", "Default backend")
-  .option("--model <id>", "Default model (from workflow info)")
+  .option("--model <id>", "Default model (from workflow-cli info)")
   .option("--concurrency <count>", "Maximum concurrent agents (1–16)")
   .option("--resume <run-id>", "Replay unchanged calls from a stopped run")
   .option("--json", "Stream NDJSON events and a final report")
@@ -250,7 +250,7 @@ storageCommand("run", "Agent working directory")
       process.stdout.write(
         options.json
           ? JSON.stringify(reply) + "\n"
-          : `Started ${reply.runId}\nRun: ${reply.directory}\nScript: ${reply.scriptPath}\nUse workflow wait ${reply.runId} --runs-dir ${root} for the result.\n`,
+          : `Started ${reply.runId}\nRun: ${reply.directory}\nScript: ${reply.scriptPath}\nUse workflow-cli wait ${reply.runId} --runs-dir ${root} for the result.\n`,
       );
       if (reply.warning && !options.json) {
         process.stderr.write(`${reply.warning}: ${reply.logsDirectory}\n`);
@@ -476,6 +476,6 @@ await program.parseAsync().catch((error) => {
     return;
   }
 
-  process.stderr.write(`workflow: ${errorText(error)}\n`);
+  process.stderr.write(`workflow-cli: ${errorText(error)}\n`);
   process.exitCode = 1;
 });

@@ -302,7 +302,7 @@ export class Progress {
     const visible = lines.slice(-maxRows);
     if (lines.length > maxRows) {
       visible.unshift(
-        `… ${lines.length - maxRows} earlier rows; workflow show for all agents`,
+        `… ${lines.length - maxRows} earlier rows; workflow-cli show for all agents`,
       );
     }
 

@@ -32,7 +32,7 @@ return pipeline(
 ```
 
 ```sh
-workflow run review.js --backend claude --model <model from workflow info> \
+workflow-cli run review.js --backend claude --model <model from workflow-cli info> \
   --args '{"files":["/repo/src/cache.ts","/repo/src/queue.ts"]}'
 ```
 
@@ -45,35 +45,36 @@ first changed one; later calls run live.
 ## Install
 
 The package is not published yet. Install [mise](https://mise.jdx.dev), then
-build and install from a checkout:
+build and install from a checkout; this puts a `workflow-cli` executable on your
+`PATH`:
 
 ```sh
 mise trust
 mise install
 mise x -- pnpm pack
 npm install --global ./sargunv-workflow-0.1.0.tgz
-workflow skill --install ~/.claude/skills/workflow
+workflow-cli skill --install ~/.claude/skills/workflow
 ```
 
 Workflow requires Node 24 or later on macOS or Linux (use WSL on Windows).
-Install and authenticate the agent CLIs you want to use, then run `workflow
+Install and authenticate the agent CLIs you want to use, then run `workflow-cli
 info` to see which backends, models, effort levels and tool policies are
 available.
 
 ## Commands
 
-| Command                                   | Purpose                                                    |
-| ----------------------------------------- | ---------------------------------------------------------- |
-| `workflow info`                           | Detect installed backends and their capabilities           |
-| `workflow run <script>`                   | Run a script file, or `-` for stdin                        |
-| `workflow run <script> --background`      | Return a run ID after preflight and keep running           |
-| `workflow run <script> --resume <run-id>` | Replay a previous run up to the first change               |
-| `workflow wait <run-id>`                  | Follow a background run and print its result               |
-| `workflow show <run-id>`                  | Summarize a run; `--agent <id> [--transcript]` drills in   |
-| `workflow journal <run-id>`               | Print the raw agent result journal                         |
-| `workflow skip <run-id> <agent-id>`       | Skip one queued or running agent                           |
-| `workflow stop <run-id>`                  | Cancel a run and wait for its workers to shut down         |
-| `workflow skill --install <directory>`    | Install the authoring skill into a harness skill directory |
+| Command                                       | Purpose                                                    |
+| --------------------------------------------- | ---------------------------------------------------------- |
+| `workflow-cli info`                           | Detect installed backends and their capabilities           |
+| `workflow-cli run <script>`                   | Run a script file, or `-` for stdin                        |
+| `workflow-cli run <script> --background`      | Return a run ID after preflight and keep running           |
+| `workflow-cli run <script> --resume <run-id>` | Replay a previous run up to the first change               |
+| `workflow-cli wait <run-id>`                  | Follow a background run and print its result               |
+| `workflow-cli show <run-id>`                  | Summarize a run; `--agent <id> [--transcript]` drills in   |
+| `workflow-cli journal <run-id>`               | Print the raw agent result journal                         |
+| `workflow-cli skip <run-id> <agent-id>`       | Skip one queued or running agent                           |
+| `workflow-cli stop <run-id>`                  | Cancel a run and wait for its workers to shut down         |
+| `workflow-cli skill --install <directory>`    | Install the authoring skill into a harness skill directory |
 
 `run` accepts `--args <json>` or `--args-file <path>`, run defaults `--backend`
 and `--model`, and `--json` for NDJSON events. Run and inspection commands take

@@ -1,7 +1,7 @@
 # GPT model selection
 
 These are opinionated defaults for the GPT-6 Luna, GPT-6.1 Sol and GPT-6 Astra
-generation. Prefer newer models in the same tier when `workflow info` lists
+generation. Prefer newer models in the same tier when `workflow-cli info` lists
 them.
 
 Luna is fast and cheap. Use Luna for extraction, summaries, or small bounded

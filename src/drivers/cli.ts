@@ -248,7 +248,7 @@ function cursorInvocation(request: DriverRequest): CliInvocation {
   argv.push(prompt);
 
   const warning = request.effort
-    ? "Cursor effort must be selected using a model ID listed by workflow info; separate effort was not applied"
+    ? "Cursor effort must be selected using a model ID listed by workflow-cli info; separate effort was not applied"
     : undefined;
 
   return { argv, stdin: "", warning };

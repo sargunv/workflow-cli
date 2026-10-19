@@ -10,14 +10,14 @@ find-verify-fix loop whose control flow is clearer as code. Stay inline for a
 single task or work whose next step needs continuous human judgment. The script
 orchestrates; leaf agents perform model-driven work.
 
-Run `workflow info` first and select an available backend, model, effort level
-and tool policy from its output. Claude lists aliases; full model IDs accepted
-by its CLI also work. Never copy model names from an example without checking
-this installation. The CLI always disables approval prompts; this does not grant
-additional user authorization. Prefer `toolPolicy: 'read-only'` for review
-stages and `isolation: 'worktree'` for parallel edits, and use a container or VM
-for untrusted repositories. ACP backends (OpenCode, Kimi, Qwen) reject read-only
-requests.
+Run `workflow-cli info` first and select an available backend, model, effort
+level and tool policy from its output. Claude lists aliases; full model IDs
+accepted by its CLI also work. Never copy model names from an example without
+checking this installation. The CLI always disables approval prompts; this does
+not grant additional user authorization. Prefer `toolPolicy: 'read-only'` for
+review stages and `isolation: 'worktree'` for parallel edits, and use a
+container or VM for untrusted repositories. ACP backends (OpenCode, Kimi, Qwen)
+reject read-only requests.
 
 ## Model selection guidance
 
@@ -47,13 +47,13 @@ export const meta = {
 };
 ```
 
-Use `workflow run ./review.js --args '{"files":["src/a.ts"]}'` or `--args-file
-./input.json`; `workflow run -` reads a script from stdin. `--backend <name>`
-(or the config's top-level `backend`) and `--model <id>` set run defaults;
-per-agent and child overrides take precedence. The config's `defaults` holds
-other common agent options, never a backend. Add `.workflow/` to the
-repository's `.gitignore` so run artifacts and retained worktrees do not enter
-commits.
+Use `workflow-cli run ./review.js --args '{"files":["src/a.ts"]}'` or
+`--args-file ./input.json`; `workflow-cli run -` reads a script from stdin.
+`--backend <name>` (or the config's top-level `backend`) and `--model <id>` set
+run defaults; per-agent and child overrides take precedence. The config's
+`defaults` holds other common agent options, never a backend. Add `.workflow/`
+to the repository's `.gitignore` so run artifacts and retained worktrees do not
+enter commits.
 
 Paths in prompts should be absolute. A leaf sees its prompt, the return-value
 and authority preamble, cwd, and its own harness's normal instruction files. It
@@ -104,9 +104,9 @@ awaited; returning early cancels unfinished agents.
 Worktrees contain committed tracked files. Configure opt-in local paths in
 `.workflow/config.json` as `sharedPaths: [{ path: 'node_modules', mode:
 'symlink' }]` or `mode: 'copy'`; a writable symlink remains shared with the
-parent. Worktree paths and branches appear in `workflow show` and the journal,
-not in the return value of `agent()`. If a later stage needs them, ask the
-isolated worker to include its cwd and branch in its structured result.
+parent. Worktree paths and branches appear in `workflow-cli show` and the
+journal, not in the return value of `agent()`. If a later stage needs them, ask
+the isolated worker to include its cwd and branch in its structured result.
 
 ## Pipeline first
 
@@ -166,19 +166,20 @@ with a README listing their inputs.
 ## Resume and inspect
 
 Run in the foreground to see the live tree, or use `--background` for an
-immediate run ID. `workflow wait <id>` shows progress and returns the result;
-Ctrl-C stops waiting without stopping the run. `skip` ends one queued or running
-leaf and `stop` cancels the run. Stop the prior run before editing and resuming:
+immediate run ID. `workflow-cli wait <id>` shows progress and returns the
+result; Ctrl-C stops waiting without stopping the run. `skip` ends one queued or
+running leaf and `stop` cancels the run. Stop the prior run before editing and
+resuming:
 
 ```sh
-workflow run ./review.js --background --backend claude
-workflow wait wf_012345abcdef
-workflow skip wf_012345abcdef 4
-workflow stop wf_012345abcdef
-workflow run ./review.js --resume wf_012345abcdef
-workflow show wf_012345abcdef
-workflow show wf_012345abcdef --agent 4 --transcript
-workflow journal wf_012345abcdef
+workflow-cli run ./review.js --background --backend claude
+workflow-cli wait wf_012345abcdef
+workflow-cli skip wf_012345abcdef 4
+workflow-cli stop wf_012345abcdef
+workflow-cli run ./review.js --resume wf_012345abcdef
+workflow-cli show wf_012345abcdef
+workflow-cli show wf_012345abcdef --agent 4 --transcript
+workflow-cli journal wf_012345abcdef
 ```
 
 Resume replays the longest unchanged prefix of prompts and effective options
@@ -201,7 +202,7 @@ final report.
 
 ## Runtime overrides
 
-`workflow info` reports configured limits and capabilities:
+`workflow-cli info` reports configured limits and capabilities:
 
 - `sandbox`: `memoryBytes` (default 64 MiB) and `interruptChecks` (default
   100,000), a per-run cap on QuickJS's periodic interrupt polls rather than an
