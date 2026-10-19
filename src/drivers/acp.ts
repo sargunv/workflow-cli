@@ -58,7 +58,9 @@ export class AcpConnection {
         request.reject(
           exit.cleanupUncertain
             ? new ProcessOwnershipError(exit.error)
-            : new Error(exit.error ?? exit.stderr ?? `ACP exited ${exit.code}`),
+            : new Error(
+                exit.error ?? (exit.stderr.trim() || `ACP exited ${exit.code}`),
+              ),
         );
       }
 

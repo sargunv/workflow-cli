@@ -123,21 +123,22 @@ export class CliEventParser {
     }
   }
 
-  finish(code: number, error?: string): DriverResult {
+  finish(code: number, processError?: string, stderr = ""): DriverResult {
+    let error = processError ?? this.error;
+    if (error === undefined && code !== 0) {
+      error = stderr.trim() || `Backend exited ${code}`;
+    }
+
+    if (error === undefined && !this.terminal) {
+      error = "Backend exited without a terminal event";
+    }
+
     return {
       text: this.text,
       structured: this.structured,
       usage: this.usage,
       usageLimit: this.usageLimit,
-      exitInfo: {
-        code,
-        error:
-          error ??
-          this.error ??
-          (!this.terminal
-            ? "Backend exited without a terminal event"
-            : undefined),
-      },
+      exitInfo: { code, error },
     };
   }
 

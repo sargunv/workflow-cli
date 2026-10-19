@@ -78,7 +78,15 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
       }
       reply({ configOptions: config ?? [] });
       break;
-    case "session/prompt":
+    case "session/prompt": {
+      const text = message.params.prompt[0].text;
+      if (text.endsWith("exit with stderr")) {
+        process.stderr.write("stderr failure\n", () => process.exit(3));
+        break;
+      }
+      if (text.endsWith("exit silently")) {
+        process.exit(3);
+      }
       turn++;
       pending = message.id;
       send({
@@ -98,6 +106,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
         },
       });
       break;
+    }
     default:
       if (message.id === `permission-${turn}`) {
         const update = (value) =>

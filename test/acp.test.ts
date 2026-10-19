@@ -156,3 +156,22 @@ void test("Qwen configuration refresh rejects effort removed by model selection"
     false,
   );
 });
+
+void test("ACP exits report stderr, or the exit code when stderr is empty", async (t) => {
+  const { cwd, driver } = await fixture(t, "opencode");
+  for (const [prompt, error] of [
+    ["exit with stderr", "stderr failure"],
+    ["exit silently", "ACP exited 3"],
+  ] as const) {
+    await assert.rejects(
+      driver.run({
+        prompt,
+        cwd,
+        systemAppend: "test",
+        signal: new AbortController().signal,
+        onEvent: () => {},
+      }),
+      { message: error },
+    );
+  }
+});

@@ -336,10 +336,7 @@ export class CliDriver implements Driver {
         throw new ProcessOwnershipError(exit.error);
       }
 
-      return parser.finish(
-        exit.code,
-        exit.error ?? (exit.code !== 0 ? exit.stderr : undefined),
-      );
+      return parser.finish(exit.code, exit.error, exit.stderr);
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
