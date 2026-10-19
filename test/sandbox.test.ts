@@ -168,17 +168,10 @@ void test("call validation throws synchronously and arguments cannot silently lo
     /finite JSON/,
   );
 });
-void test("schema root, satisfiability and original optional-property semantics", () => {
+void test("schema root, required keys and original optional-property semantics", () => {
   assert.throws(() => compileSchema({ type: "array" }));
   assert.throws(() =>
     compileSchema({ type: "object", properties: {}, required: ["missing"] }),
-  );
-  assert.throws(() =>
-    compileSchema({
-      type: "object",
-      properties: { x: { type: "number", minimum: 5, maximum: 2 } },
-      required: ["x"],
-    }),
   );
   const validate = compileSchema({
     type: "object",
@@ -229,47 +222,6 @@ void test("final results reject silent JSON data loss", async () => {
       /finite JSON/,
     );
   }
-});
-
-void test("schema traversal preserves const, enum and annotation instance data", () => {
-  const value = { minimum: 5, maximum: 1 };
-  const base = {
-    type: "object",
-    properties: { minimum: { type: "number" }, maximum: { type: "number" } },
-  };
-  assert.ok(compileSchema({ ...base, const: value })(value));
-  assert.ok(compileSchema({ ...base, enum: [value] })(value));
-  assert.ok(compileSchema({ ...base, default: value })({}));
-  assert.ok(
-    compileSchema({ type: "object", properties: { x: { enum: [value] } } })({
-      x: value,
-    }),
-  );
-  assert.ok(
-    compileSchema({
-      type: "object",
-      properties: { x: { type: "number", minimum: 5, maximum: 1 } },
-    })({}),
-  );
-  assert.ok(
-    compileSchema({ type: "object", properties: {}, minimum: 5, maximum: 1 })(
-      {},
-    ),
-  );
-  assert.ok(
-    compileSchema({
-      type: "object",
-      properties: {
-        x: {
-          anyOf: [
-            { type: "number", minimum: 5, maximum: 1 },
-            { type: "string" },
-          ],
-        },
-      },
-      required: ["x"],
-    })({ x: "valid" }),
-  );
 });
 
 void test("script errors show a concise message and workflow location", async () => {

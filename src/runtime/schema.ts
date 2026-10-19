@@ -66,76 +66,6 @@ function subschemas(schema: Record<string, Json>): Record<string, Json>[] {
   return nodes;
 }
 
-// A contradiction in an optional property or one alternative does not make the
-// root impossible. Only reject constraints proven active for the node's type.
-function impossible(value: Json): boolean {
-  if (value === false) {
-    return true;
-  }
-
-  const schema = object(value);
-  if (!schema) {
-    return false;
-  }
-
-  const boundsByType: Record<string, readonly [string, string]> = {
-    object: ["minProperties", "maxProperties"],
-    array: ["minItems", "maxItems"],
-    string: ["minLength", "maxLength"],
-    number: ["minimum", "maximum"],
-    integer: ["minimum", "maximum"],
-  };
-
-  const bounds =
-    typeof schema.type === "string" && Object.hasOwn(boundsByType, schema.type)
-      ? boundsByType[schema.type]
-      : undefined;
-  if (bounds) {
-    const [min, max] = bounds;
-    const lower = schema[min];
-    const upper = schema[max];
-    if (
-      typeof lower === "number" &&
-      typeof upper === "number" &&
-      lower > upper
-    ) {
-      return true;
-    }
-  }
-
-  if (schema.type === "object" && Array.isArray(schema.required)) {
-    const properties = object(schema.properties) ?? {};
-    for (const key of schema.required) {
-      if (
-        typeof key === "string" &&
-        properties[key] !== undefined &&
-        impossible(properties[key])
-      ) {
-        return true;
-      }
-    }
-
-    if (
-      typeof schema.maxProperties === "number" &&
-      new Set(schema.required).size > schema.maxProperties
-    ) {
-      return true;
-    }
-  }
-
-  if (Array.isArray(schema.allOf) && schema.allOf.some(impossible)) {
-    return true;
-  }
-
-  for (const key of ["anyOf", "oneOf"]) {
-    if (Array.isArray(schema[key]) && schema[key].every(impossible)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 export function compileSchema(schema: Record<string, Json>): ValidateFunction {
   if (schema.type !== "object" || !object(schema.properties)) {
     throw new Error("Schema root must have type: object and properties");
@@ -152,25 +82,7 @@ export function compileSchema(schema: Record<string, Json>): ValidateFunction {
     throw new Error("Schema required must be a subset of properties");
   }
 
-  if (impossible(schema)) {
-    throw new Error("Unsatisfiable schema: contradictory active constraints");
-  }
-
-  const validate = ajv.compile(schema);
-  if (schema.const !== undefined && !validate(schema.const)) {
-    throw new Error("Unsatisfiable schema: const fails its constraints");
-  }
-
-  if (
-    Array.isArray(schema.enum) &&
-    !schema.enum.some((value) => validate(value))
-  ) {
-    throw new Error(
-      "Unsatisfiable schema: no enum value satisfies constraints",
-    );
-  }
-
-  return validate;
+  return ajv.compile(schema);
 }
 
 export function schemaError(validate: ValidateFunction): string {
