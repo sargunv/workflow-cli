@@ -28,6 +28,10 @@ run = "pnpm test"
 [tasks.typecheck]
 run = "pnpm run typecheck"
 
+[tasks.smoke]
+description = "Pack, install and run the package against a fake backend"
+run = "pnpm exec tsx scripts/smoke.ts"
+
 [tasks.dev]
 run = "pnpm dev"
 

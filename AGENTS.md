@@ -11,7 +11,8 @@ harnesses. The user-facing overview is in README.md; the script API is in
 - `skills/workflow/`: bundled authoring skill.
 - `examples/`: runnable workflow recipes.
 - `test/`: offline behavior tests and recorded protocol fixtures.
-- `scripts/`: build, example formatting and the manual backend probe.
+- `scripts/`: build, example formatting, package smoke test and the manual
+  backend probe.
 
 | Area              | Owner and boundary                                                                                                                                                                                                                                   |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -29,8 +30,9 @@ Use `mise install`, then `mise run check`, `mise run typecheck`, `mise run test`
 and `mise run build`; `mise run fix` formats. Run the source CLI with `mise run
 dev -- <arguments>`. Tests must never invoke real agent binaries; they use
 synthetic executables under `test/helpers/` and recorded fixtures. `mise run
-probe -- --backend <name> --model <model>` checks one real backend manually and
-consumes quota.
+smoke` packs and installs the package, then runs it against the fake Claude CLI;
+CI runs it after the other checks. `mise run probe -- --backend <name> --model
+<model>` checks one real backend manually and consumes quota.
 
 ## Project invariants
 
