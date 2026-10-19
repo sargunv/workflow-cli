@@ -37,6 +37,11 @@ void test("finished worktrees are removed only when they hold nothing of value",
   );
 
   const copied = await createWorktree(dir, "wf_test", 3, env);
+  // Shared state is copied in before the agent starts.
+  assert.equal(
+    await readFile(join(copied.path, ".env"), "utf8"),
+    "ORIGINAL=1\n",
+  );
   await writeFile(join(copied.path, ".env"), "VALUABLE_CHANGE=1\n");
   assert.equal((await finishWorktree(dir, copied)).kept, true);
   assert.equal(

@@ -141,16 +141,25 @@ void test("usage limits stop admission, keep changed work and resume the interru
 });
 
 void test("uncertain process cleanup fails the run, even after a usage limit, and keeps a clean worktree", async () => {
+  let directory = "";
   const request = await fixture(
     async (task) => {
       task.onEvent({
         type: "usage-limit",
         usageLimit: { message: "Usage exhausted" },
       });
+      // Observers see the limit before cleanup, which may never finish.
+      const saved = JSON.parse(
+        await readFile(join(directory, "report.json"), "utf8"),
+      );
+      assert.equal(saved.usageLimit?.backend, "claude");
       throw new ProcessOwnershipError("Backend output remained open");
     },
     { repo: true },
   );
+  request.onStarting = (run) => {
+    directory = run.store.directory;
+  };
   request.source = header + "return agent('work',{isolation:'worktree'});";
   const report = await runWorkflow(request);
   assert.equal(report.status, "failed");
@@ -173,6 +182,7 @@ void test("concurrency is enforced and a completed run fully replays", async () 
     );
     active--;
     task.onEvent({ type: "raw", raw: { type: "backend-record" } });
+    task.onEvent({ type: "tool", id: "t1", text: "Read" });
     return {
       text: task.prompt,
       usage: { input: 4, output: 2 },
@@ -185,6 +195,7 @@ void test("concurrency is enforced and a completed run fully replays", async () 
   const first = await runWorkflow(request);
   assert.equal(first.status, "completed");
   assert.equal(peak, 2);
+  assert.ok(first.agents.every((agent) => agent.toolCalls === 1));
   assert.match(
     await readFile(join(first.directory, "transcripts", "1.jsonl"), "utf8"),
     /backend-record/,
@@ -236,16 +247,22 @@ void test("session corrections keep context and always close the session", async
   ) => {
     let calls = 0;
     let closed = 0;
+    const feedback: string[] = [];
     const request = await fixture(
-      async () => {
+      async (task) => {
         calls++;
+        // Real ACP sessions are only retained when the request asks for it.
+        assert.equal(task.keepSession, true);
         let attempt = 0;
         return {
           text: "invalid",
           usage: { input: 1, output: 1 },
           exitInfo: { code: 0 },
           session: {
-            prompt: () => prompt(++attempt),
+            prompt: (text) => {
+              feedback.push(text);
+              return prompt(++attempt);
+            },
             async close() {
               closed++;
             },
@@ -254,8 +271,16 @@ void test("session corrections keep context and always close the session", async
       },
       { detection: { correction: "session", structured: "prompted" } },
     );
-    request.source = header + `return agent('task', ${valueSchema});`;
-    return { report: await runWorkflow(request), calls, closed };
+    request.source =
+      header + `return agent('MAKE THE ORIGINAL EDIT', ${valueSchema});`;
+    const report = await runWorkflow(request);
+    // Session corrections send validation feedback, never the task again.
+    for (const text of feedback) {
+      assert.equal(text.includes("MAKE THE ORIGINAL EDIT"), false);
+      assert.match(text, /Validation error: /);
+      assert.ok(text.includes('"required":["value"]'));
+    }
+    return { report, calls, closed, feedback };
   };
 
   const corrected = await sessionRun(async (attempt) => ({
@@ -266,6 +291,7 @@ void test("session corrections keep context and always close the session", async
   assert.deepEqual(corrected.report.result, { value: "done" });
   assert.equal(corrected.report.agents[0]?.usage?.output, 5);
   assert.deepEqual([corrected.calls, corrected.closed], [1, 1]);
+  assert.equal(corrected.feedback.length, 2);
 
   const lost = await sessionRun(async () => {
     throw new Error("Correction connection lost");

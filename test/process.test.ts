@@ -133,6 +133,8 @@ void test("a supervisor that dies without reporting makes cleanup uncertain", as
     child.child.kill("SIGKILL");
     const exit = await child.exited;
     assert.equal(exit.cleanupUncertain, true);
+    // The failed run needs an actionable reason, not an empty error.
+    assert.match(exit.error ?? "", /supervisor/i);
   } finally {
     try {
       process.kill(pid, "SIGKILL");

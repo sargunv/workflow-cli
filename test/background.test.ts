@@ -50,6 +50,8 @@ void test("background skip and stop control the exact run; show includes active 
     assert.equal(stop.code, 0, stop.stderr);
     assert.equal(final(stop.stdout).status, "cancelled");
     await assert.rejects(controlRun(p.root, run.runId, { action: "ping" }));
+    // A stopped run must not keep presenting its leaves as running.
+    assert.deepEqual((await inspectReport(p.root, run.runId)).activeAgents, []);
     assert.match(
       await readFile(join(run.directory, "stdout.log"), "utf8"),
       /agent-queued/,
@@ -82,6 +84,8 @@ void test("background runs can be waited on and resumed from cache; launch failu
     p,
   );
   assert.match(transcript.stdout, /cache-hit/);
+  // The link resolves to the original run's backend records.
+  assert.match(transcript.stdout, /read-1/);
   assert.equal(await readFile(join(p.cwd, "calls"), "utf8"), "hello fixture\n");
 
   const unavailable = await command(
