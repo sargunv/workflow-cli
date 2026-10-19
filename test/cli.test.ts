@@ -515,8 +515,7 @@ void test("info exposes the same capabilities in JSON and human output", async (
     { id: "sonnet", efforts: [] },
     { id: "haiku", efforts: [] },
   ]);
-  assert.match(claude.notes.join("\n"), /Static, non-exhaustive model aliases/);
-  assert.match(claude.notes.join("\n"), /Any model ID accepted by claude/);
+  assert.match(claude.notes.join("\n"), /any model ID claude accepts/);
   assert.match(
     claude.notes.join("\n"),
     /Omit model to use Claude's configured default/,

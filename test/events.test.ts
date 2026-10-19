@@ -6,12 +6,21 @@ import { test } from "node:test";
 
 import { codexModels, cursorModels, CliDriver } from "../src/drivers/cli.js";
 import {
-  CliEventParser,
   AcpEventParser,
+  ClaudeEventParser,
+  CodexEventParser,
+  CursorEventParser,
   object,
 } from "../src/drivers/events.js";
+import type { CliEventParser } from "../src/drivers/events.js";
 import { parseStructured } from "../src/runtime/schema.js";
 import type { DriverEvent } from "../src/types.js";
+
+const parsers = {
+  claude: ClaudeEventParser,
+  codex: CodexEventParser,
+  cursor: CursorEventParser,
+};
 
 function feed(parser: CliEventParser, ...events: unknown[]) {
   for (const event of events) {
@@ -22,7 +31,7 @@ function feed(parser: CliEventParser, ...events: unknown[]) {
 void test("source-derived quota refusals retain details despite stderr and emit once", async () => {
   for (const backend of ["claude", "codex"] as const) {
     const events: DriverEvent[] = [];
-    const parser = new CliEventParser(backend, (event) => events.push(event));
+    const parser = new parsers[backend]((event) => events.push(event));
     const lines = await readFile(
       new URL(`./fixtures/${backend}-usage-limit.jsonl`, import.meta.url),
       "utf8",
@@ -92,7 +101,7 @@ void test("Claude legacy refusals and errors arrays interrupt only failed termin
     ],
   ];
   for (const [expected, result] of cases) {
-    const parser = new CliEventParser("claude", () => {});
+    const parser = new ClaudeEventParser(() => {});
     feed(
       parser,
       {
@@ -112,7 +121,7 @@ void test("Claude legacy refusals and errors arrays interrupt only failed termin
 void test("quota warnings, tool output and recoverable throttles do not interrupt", () => {
   for (const backend of ["claude", "codex", "cursor"] as const) {
     const events: DriverEvent[] = [];
-    const parser = new CliEventParser(backend, (event) => events.push(event));
+    const parser = new parsers[backend]((event) => events.push(event));
     parser.line("You've hit your usage limit", "stderr");
     feed(
       parser,
@@ -146,7 +155,7 @@ void test("quota warnings, tool output and recoverable throttles do not interrup
 
 void test("Claude does not reuse a recovered refusal for a later unrelated failure", () => {
   for (const recovered of [true, false]) {
-    const parser = new CliEventParser("claude", () => {});
+    const parser = new ClaudeEventParser(() => {});
     feed(parser, {
       type: "assistant",
       is_api_error_message: true,
@@ -174,7 +183,7 @@ void test("Claude does not reuse a recovered refusal for a later unrelated failu
 
 void test("Claude legacy refusals do not inherit advisory limit/reset details", () => {
   for (const status of ["allowed_warning", "rejected"]) {
-    const parser = new CliEventParser("claude", () => {});
+    const parser = new ClaudeEventParser(() => {});
     feed(
       parser,
       {
@@ -206,7 +215,7 @@ void test("Claude legacy refusals do not inherit advisory limit/reset details", 
 
 void test("recorded Claude stream yields native structured output and tool usage", async () => {
   const events: DriverEvent[] = [];
-  const parser = new CliEventParser("claude", (event) => events.push(event));
+  const parser = new ClaudeEventParser((event) => events.push(event));
   for (const line of (
     await readFile(
       new URL("./fixtures/claude-success.jsonl", import.meta.url),
@@ -280,7 +289,7 @@ void test("recorded native ACP streams retain only each turn's final answer and 
 
 void test("recorded Codex and Cursor streams report vendor final text and usage", async () => {
   for (const backend of ["codex", "cursor"] as const) {
-    const parser = new CliEventParser(backend, () => {});
+    const parser = new parsers[backend](() => {});
     for (const line of (
       await readFile(
         new URL(`./fixtures/${backend}-success.jsonl`, import.meta.url),
@@ -344,7 +353,7 @@ void test("recorded Claude read-only policy retains its native output tool", asy
     .split("\n");
   const init = JSON.parse(events[0] ?? "null");
   assert.deepEqual(init.tools, ["Glob", "Grep", "Read", "StructuredOutput"]);
-  const parser = new CliEventParser("claude", () => {});
+  const parser = new ClaudeEventParser(() => {});
   for (const line of events) {
     parser.line(line, "stdout");
   }
@@ -365,7 +374,7 @@ void test("Cursor catalog preserves literal effort model IDs and its reported de
 });
 void test("CLI usage is absent when counters are missing and Claude includes cache input", () => {
   for (const backend of ["claude", "codex", "cursor"] as const) {
-    const parser = new CliEventParser(backend, () => {});
+    const parser = new parsers[backend](() => {});
     parser.line(
       JSON.stringify({
         type: backend === "codex" ? "turn.completed" : "result",
@@ -375,7 +384,7 @@ void test("CLI usage is absent when counters are missing and Claude includes cac
     );
     assert.equal(parser.finish(0).usage, undefined);
   }
-  const claude = new CliEventParser("claude", () => {});
+  const claude = new ClaudeEventParser(() => {});
   claude.line(
     JSON.stringify({
       type: "result",
@@ -460,7 +469,7 @@ void test("failed CLI exits prefer the parsed error, then stderr, then the exit 
     process.env.PATH = path;
   }
 
-  const parser = new CliEventParser("claude", () => {});
+  const parser = new ClaudeEventParser(() => {});
   feed(parser, { type: "result", subtype: "success", result: "done" });
   assert.equal(
     parser.finish(2, undefined, "\n").exitInfo.error,

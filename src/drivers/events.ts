@@ -21,12 +21,6 @@ export function string(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-export function number(value: unknown): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? value
-    : 0;
-}
-
 export function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -41,18 +35,21 @@ export function decode(line: string): Record<string, unknown> | undefined {
   }
 }
 
-export function usage(value: unknown): Usage | undefined {
+function count(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function usage(value: unknown): Usage | undefined {
   const tokens = object(value);
-  const input = tokens.input_tokens ?? tokens.inputTokens ?? tokens.input;
-  const output = tokens.output_tokens ?? tokens.outputTokens ?? tokens.output;
-  if (
-    typeof input !== "number" ||
-    !Number.isFinite(input) ||
-    input < 0 ||
-    typeof output !== "number" ||
-    !Number.isFinite(output) ||
-    output < 0
-  ) {
+  const input = count(
+    tokens.input_tokens ?? tokens.inputTokens ?? tokens.input,
+  );
+  const output = count(
+    tokens.output_tokens ?? tokens.outputTokens ?? tokens.output,
+  );
+  if (input === undefined || output === undefined) {
     return undefined;
   }
 
@@ -65,45 +62,66 @@ export function usage(value: unknown): Usage | undefined {
     "cacheWriteTokens",
     "cachedReadTokens",
     "cachedWriteTokens",
-  ].reduce((sum, key) => sum + number(tokens[key]), 0);
-  const cached =
+  ].reduce((sum, key) => sum + (count(tokens[key]) ?? 0), 0);
+  const cached = count(
     tokens.cached_input_tokens ??
-    tokens.cache_read_input_tokens ??
-    tokens.cacheReadTokens ??
-    tokens.cachedReadTokens;
+      tokens.cache_read_input_tokens ??
+      tokens.cacheReadTokens ??
+      tokens.cachedReadTokens,
+  );
 
   return {
     input: input + separate,
     output,
-    ...(typeof cached === "number" && Number.isFinite(cached) && cached >= 0
-      ? { cachedInput: cached }
-      : {}),
+    ...(cached === undefined ? {} : { cachedInput: cached }),
   };
 }
 
-export class CliEventParser {
-  text = "";
+// Context occupancy (used/size) is not per-turn token usage.
+function isTurnUsage(tokens: Record<string, unknown>): boolean {
+  return (
+    tokens.outputTokens !== undefined || tokens.output_tokens !== undefined
+  );
+}
 
-  structured: Json | undefined;
+/** Emits a one-line activity preview per message and each tool call once. */
+class Progress {
+  private tools = new Set<string>();
 
-  usage: Usage | undefined;
+  constructor(private emit: (event: DriverEvent) => void) {}
 
-  error: string | undefined;
+  activity(text: string) {
+    if (text) {
+      this.emit({ type: "activity", text: text.split("\n")[0]?.slice(0, 160) });
+    }
+  }
 
-  terminal = false;
+  tool(id: string, text: string) {
+    if (!this.tools.has(id)) {
+      this.tools.add(id);
+      this.emit({ type: "tool", id, text });
+    }
+  }
+}
+
+export abstract class CliEventParser {
+  protected text = "";
+
+  protected structured: Json | undefined;
+
+  protected usage: Usage | undefined;
+
+  protected error: string | undefined;
+
+  protected terminal = false;
+
+  protected progress: Progress;
 
   private usageLimit: UsageLimit | undefined;
 
-  private claudeApiError: Record<string, unknown> | undefined;
-
-  private tools = new Set<string>();
-
-  private cursorFinal: string | undefined;
-
-  constructor(
-    private backend: "claude" | "codex" | "cursor",
-    private emit: (event: DriverEvent) => void,
-  ) {}
+  constructor(private emit: (event: DriverEvent) => void) {
+    this.progress = new Progress(emit);
+  }
 
   line(line: string, channel: "stdout" | "stderr") {
     this.emit({ type: "raw", raw: { channel, line } });
@@ -112,14 +130,8 @@ export class CliEventParser {
     }
 
     const event = decode(line);
-    if (!event) {
-      return;
-    }
-
-    if (this.backend === "codex") {
-      this.codexEvent(event);
-    } else {
-      this.claudeOrCursorEvent(event);
+    if (event) {
+      this.event(event);
     }
   }
 
@@ -142,19 +154,30 @@ export class CliEventParser {
     };
   }
 
-  private codexEvent(event: Record<string, unknown>) {
+  protected abstract event(event: Record<string, unknown>): void;
+
+  protected recordUsageLimit(limit: UsageLimit) {
+    if (!this.usageLimit) {
+      this.usageLimit = limit;
+      this.emit({ type: "usage-limit", usageLimit: limit });
+    }
+  }
+}
+
+export class CodexEventParser extends CliEventParser {
+  protected event(event: Record<string, unknown>) {
     const item = object(event.item);
     if (event.type === "item.started" || event.type === "item.completed") {
       if (item.type === "agent_message" && event.type === "item.completed") {
         this.text = string(item.text);
-        this.activity(this.text);
+        this.progress.activity(this.text);
       } else if (
         item.type === "command_execution" ||
         item.type === "mcp_tool_call" ||
         item.type === "file_change" ||
         item.type === "web_search"
       ) {
-        this.tool(
+        this.progress.tool(
           string(item.id),
           string(item.command ?? item.tool ?? item.type),
         );
@@ -176,42 +199,26 @@ export class CliEventParser {
       }
     }
   }
+}
 
-  private claudeOrCursorEvent(event: Record<string, unknown>) {
-    const message = object(event.message);
+/** Claude's stream-json format, which Cursor also emits. */
+abstract class StreamJsonEventParser extends CliEventParser {
+  protected event(event: Record<string, unknown>) {
     if (event.type === "assistant") {
-      if (this.backend === "claude") {
-        this.claudeApiError =
-          event.is_api_error_message === true ? event : undefined;
-      }
-
-      if (this.backend === "cursor") {
-        const parts = array(message.content)
-          .map(object)
-          .filter((part) => part.type === "text");
-        if (parts.length) {
-          this.cursorFinal = parts.map((part) => string(part.text)).join("");
-        }
-      }
-
-      for (const content of array(message.content)) {
+      for (const content of array(object(event.message).content)) {
         const part = object(content);
         if (part.type === "text") {
-          this.activity(string(part.text));
+          this.progress.activity(string(part.text));
         }
 
         if (part.type === "tool_use") {
-          this.tool(string(part.id), string(part.name));
+          this.progress.tool(string(part.id), string(part.name));
         }
       }
     }
 
     if (event.type === "tool_call" && event.subtype === "started") {
-      if (this.backend === "cursor") {
-        this.cursorFinal = undefined;
-      }
-
-      this.tool(
+      this.progress.tool(
         string(event.call_id),
         Object.keys(object(event.tool_call)).find((key) =>
           key.endsWith("ToolCall"),
@@ -220,16 +227,19 @@ export class CliEventParser {
     }
 
     if (event.type === "result") {
-      this.resultEvent(event);
+      this.result(event);
     }
   }
 
-  private resultEvent(event: Record<string, unknown>) {
+  protected resultText(event: Record<string, unknown>): string {
+    return string(event.result);
+  }
+
+  protected failed(_event: Record<string, unknown>) {}
+
+  private result(event: Record<string, unknown>) {
     this.terminal = true;
-    this.text =
-      this.backend === "cursor"
-        ? (this.cursorFinal ?? string(event.result))
-        : string(event.result);
+    this.text = this.resultText(event);
     const parsed = jsonValue.safeParse(event.structured_output);
     if (parsed.success) {
       this.structured = parsed.data;
@@ -250,13 +260,23 @@ export class CliEventParser {
         this.text ||
         string(event.subtype) ||
         "Backend failed";
-      if (this.backend === "claude") {
-        this.claudeUsageLimit(event);
-      }
+      this.failed(event);
     }
   }
+}
 
-  private claudeUsageLimit(event: Record<string, unknown>) {
+export class ClaudeEventParser extends StreamJsonEventParser {
+  private apiError: Record<string, unknown> | undefined;
+
+  protected event(event: Record<string, unknown>) {
+    if (event.type === "assistant") {
+      this.apiError = event.is_api_error_message === true ? event : undefined;
+    }
+
+    super.event(event);
+  }
+
+  protected failed(event: Record<string, unknown>) {
     if (
       [
         "error_max_turns",
@@ -267,7 +287,7 @@ export class CliEventParser {
       return;
     }
 
-    const apiError = this.claudeApiError ?? {};
+    const apiError = this.apiError ?? {};
     const typed = event.api_error ?? apiError.api_error;
     const message = this.error ?? "Claude usage limit reached";
     // A rate_limit_event is advisory: overage, grace or fallback may still succeed.
@@ -296,25 +316,32 @@ export class CliEventParser {
         : {}),
     });
   }
+}
 
-  private recordUsageLimit(limit: UsageLimit) {
-    if (!this.usageLimit) {
-      this.usageLimit = limit;
-      this.emit({ type: "usage-limit", usageLimit: limit });
+export class CursorEventParser extends StreamJsonEventParser {
+  // Cursor's result joins every assistant message; the answer is the text after
+  // the last tool call.
+  private final: string | undefined;
+
+  protected event(event: Record<string, unknown>) {
+    if (event.type === "assistant") {
+      const parts = array(object(event.message).content)
+        .map(object)
+        .filter((part) => part.type === "text");
+      if (parts.length) {
+        this.final = parts.map((part) => string(part.text)).join("");
+      }
     }
+
+    if (event.type === "tool_call" && event.subtype === "started") {
+      this.final = undefined;
+    }
+
+    super.event(event);
   }
 
-  private activity(text: string) {
-    if (text) {
-      this.emit({ type: "activity", text: text.split("\n")[0]?.slice(0, 160) });
-    }
-  }
-
-  private tool(id: string, text: string) {
-    if (!this.tools.has(id)) {
-      this.tools.add(id);
-      this.emit({ type: "tool", id, text });
-    }
+  protected resultText(event: Record<string, unknown>): string {
+    return this.final ?? string(event.result);
   }
 }
 
@@ -323,9 +350,11 @@ export class AcpEventParser {
 
   private tokenUsage: Usage | undefined;
 
-  private tools = new Set<string>();
+  private progress: Progress;
 
-  constructor(private emit: (event: DriverEvent) => void) {}
+  constructor(emit: (event: DriverEvent) => void) {
+    this.progress = new Progress(emit);
+  }
 
   reset() {
     this.text = "";
@@ -336,23 +365,12 @@ export class AcpEventParser {
     if (update.sessionUpdate === "agent_message_chunk") {
       const chunk = string(object(update.content).text);
       this.text += chunk;
-      this.emit({
-        type: "activity",
-        text: chunk.split("\n")[0]?.slice(0, 160),
-      });
+      this.progress.activity(chunk);
     } else if (update.sessionUpdate === "tool_call") {
-      const id = string(update.toolCallId);
-      if (!this.tools.has(id)) {
-        this.tools.add(id);
-        this.emit({ type: "tool", id, text: string(update.title) });
-      }
+      this.progress.tool(string(update.toolCallId), string(update.title));
     } else if (update.sessionUpdate === "usage_update") {
       const tokens = object(update.usage ?? update);
-      // Context occupancy (used/size) is not per-turn token usage.
-      if (
-        tokens.outputTokens !== undefined ||
-        tokens.output_tokens !== undefined
-      ) {
+      if (isTurnUsage(tokens)) {
         this.tokenUsage = usage(tokens);
       }
     }
@@ -360,10 +378,7 @@ export class AcpEventParser {
 
   finish(result: Record<string, unknown>): DriverResult {
     const tokens = object(result.usage);
-    if (
-      tokens.outputTokens !== undefined ||
-      tokens.output_tokens !== undefined
-    ) {
+    if (isTurnUsage(tokens)) {
       this.tokenUsage = usage(tokens);
     }
 

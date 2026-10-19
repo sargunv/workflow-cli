@@ -4,32 +4,25 @@ import { join } from "node:path";
 
 import { defaultTransport } from "../config.js";
 import type { TransportSettings } from "../config.js";
-import type { Detection, Driver, DriverRequest, ModelInfo } from "../types.js";
+import type {
+  Detection,
+  Driver,
+  DriverEvent,
+  DriverRequest,
+  ModelInfo,
+} from "../types.js";
 import { effort, errorText, ProcessOwnershipError } from "../types.js";
-import { CliEventParser, array, object, string } from "./events.js";
-import { capture, findBinary, ManagedProcess } from "./process.js";
-
-// Flags and event shapes verified against Claude 2.1.261, Codex 0.153.3 and
-// Cursor 2026.09.02. Tests use fixtures, never subscriptions.
-export type CliBackend = "claude" | "codex" | "cursor";
-
-const binaries = { claude: "claude", codex: "codex", cursor: "cursor-agent" };
-
-const capabilityNotes: Record<CliBackend, string> = {
-  claude:
-    "Static, non-exhaustive model aliases; Claude resolves them using its provider and configuration. Any model ID accepted by claude can be passed through, including IDs absent from this list. Omit model to use Claude's configured default; configured default and per-model effort support are not exposed by the CLI. --effort accepts low, medium, high, xhigh, max; requested levels are passed to Claude for validation. Minimal (--bare) disables OAuth/keychain authentication; Workflow enables it only with ANTHROPIC_API_KEY. Helper-only authentication is not discovered.",
-  codex:
-    "The model catalog does not identify the configured default; omitting model delegates to Codex configuration. Hidden models and effort levels outside Workflow's low/medium/high/xhigh/max API are omitted.",
-  cursor:
-    "Effort is encoded in the listed model IDs (for example -high or -xhigh); a separate effort override is unsupported and warns when ignored.",
-};
-
-const claudeModels: ModelInfo[] = [
-  { id: "fable", efforts: [] },
-  { id: "opus", efforts: [] },
-  { id: "sonnet", efforts: [] },
-  { id: "haiku", efforts: [] },
-];
+import { availableBinary, composePrompt, detectBackend } from "./backend.js";
+import {
+  ClaudeEventParser,
+  CodexEventParser,
+  CursorEventParser,
+  array,
+  object,
+  string,
+} from "./events.js";
+import type { CliEventParser } from "./events.js";
+import { capture, ManagedProcess } from "./process.js";
 
 export function codexModels(output: string): ModelInfo[] {
   const data: unknown = JSON.parse(output);
@@ -67,9 +60,71 @@ export function cursorModels(output: string): ModelInfo[] {
 interface CliInvocation {
   argv: string[];
   stdin: string;
+  warning?: string;
 }
 
-function claudeArguments(request: DriverRequest): CliInvocation {
+interface CliBackend {
+  executable: string;
+  notes: string[];
+  structured: Detection["structured"];
+  toolPolicies: string[];
+  minimal?: () => boolean;
+  /** A static list, or the subcommand that lists models and its parser. */
+  models:
+    | ModelInfo[]
+    | { argv: string[]; parse: (output: string) => ModelInfo[] };
+  invocation: (request: DriverRequest, schemaPath?: string) => CliInvocation;
+  parser: (emit: (event: DriverEvent) => void) => CliEventParser;
+}
+
+// Flags and event shapes verified against Claude 2.1.261, Codex 0.153.3 and
+// Cursor 2026.09.02. Tests use fixtures, never subscriptions.
+const backends = {
+  claude: {
+    executable: "claude",
+    notes: [
+      "Model aliases are a sample; any model ID claude accepts passes through",
+      "Omit model to use Claude's configured default",
+      "Minimal mode (--bare) skips OAuth, so it requires ANTHROPIC_API_KEY",
+    ],
+    structured: "native",
+    toolPolicies: ["read-only", "allow", "deny"],
+    minimal: () => !!process.env.ANTHROPIC_API_KEY?.trim(),
+    models: [
+      { id: "fable", efforts: [] },
+      { id: "opus", efforts: [] },
+      { id: "sonnet", efforts: [] },
+      { id: "haiku", efforts: [] },
+    ],
+    invocation: claudeInvocation,
+    parser: (emit) => new ClaudeEventParser(emit),
+  },
+  codex: {
+    executable: "codex",
+    notes: [
+      "Omit model to use Codex's configured default",
+      "Hidden models and unsupported effort levels are not listed",
+    ],
+    structured: "native",
+    toolPolicies: ["read-only"],
+    models: { argv: ["debug", "models"], parse: codexModels },
+    invocation: codexInvocation,
+    parser: (emit) => new CodexEventParser(emit),
+  },
+  cursor: {
+    executable: "cursor-agent",
+    notes: [
+      "Effort is part of the model ID (for example -high); separate effort is ignored",
+    ],
+    structured: "prompted",
+    toolPolicies: ["read-only"],
+    models: { argv: ["models"], parse: cursorModels },
+    invocation: cursorInvocation,
+    parser: (emit) => new CursorEventParser(emit),
+  },
+} satisfies Record<string, CliBackend>;
+
+function claudeInvocation(request: DriverRequest): CliInvocation {
   const argv = [
     "-p",
     "--output-format",
@@ -116,7 +171,7 @@ function claudeArguments(request: DriverRequest): CliInvocation {
   return { argv, stdin: request.prompt };
 }
 
-function codexArguments(
+function codexInvocation(
   request: DriverRequest,
   schemaPath?: string,
 ): CliInvocation {
@@ -155,10 +210,10 @@ function codexArguments(
 
   argv.push("-");
 
-  return { argv, stdin: `${request.systemAppend}\n\nTask:\n${request.prompt}` };
+  return { argv, stdin: composePrompt(request) };
 }
 
-function cursorArguments(request: DriverRequest): CliInvocation {
+function cursorInvocation(request: DriverRequest): CliInvocation {
   const argv = [
     "-p",
     "--output-format",
@@ -179,139 +234,70 @@ function cursorArguments(request: DriverRequest): CliInvocation {
     argv.push("--model", request.model);
   }
 
-  if (request.effort) {
-    request.onEvent({
-      type: "warning",
-      text: "Cursor effort must be selected using a model ID listed by workflow info; separate effort was not applied",
-    });
-  }
-
   if (request.minimal) {
     throw new Error("Cursor does not support minimal context mode");
   }
 
-  const combinedPrompt = `${request.systemAppend}\n\nTask:\n${request.prompt}`;
-  if (Buffer.byteLength(combinedPrompt) > 100_000) {
+  const prompt = composePrompt(request);
+  if (Buffer.byteLength(prompt) > 100_000) {
     throw new Error(
       "Cursor accepts prompts through argv; prompt exceeds safe 100 kB limit",
     );
   }
 
-  argv.push(combinedPrompt);
+  argv.push(prompt);
 
-  return { argv, stdin: "" };
-}
+  const warning = request.effort
+    ? "Cursor effort must be selected using a model ID listed by workflow info; separate effort was not applied"
+    : undefined;
 
-export function cliArguments(
-  backend: CliBackend,
-  request: DriverRequest,
-  schemaPath?: string,
-): CliInvocation {
-  switch (backend) {
-    case "claude":
-      return claudeArguments(request);
-    case "codex":
-      return codexArguments(request, schemaPath);
-    case "cursor":
-      return cursorArguments(request);
-  }
+  return { argv, stdin: "", warning };
 }
 
 export class CliDriver implements Driver {
   private detection?: Detection;
 
+  private backend: CliBackend;
+
   constructor(
-    readonly name: CliBackend,
+    readonly name: keyof typeof backends,
     private transport: TransportSettings = defaultTransport,
-  ) {}
+  ) {
+    this.backend = backends[name];
+  }
 
   async detect(
     cwd: string,
     signal = new AbortController().signal,
   ): Promise<Detection> {
     signal.throwIfAborted();
-    if (this.detection) {
-      return this.detection;
-    }
+    this.detection ??= await detectBackend(
+      this.backend.executable,
+      {
+        name: this.name,
+        notes: [...this.backend.notes],
+        transport: "cli",
+        models: Array.isArray(this.backend.models) ? this.backend.models : [],
+        structured: this.backend.structured,
+        correction: "turn",
+        worktree: true,
+        toolPolicies: this.backend.toolPolicies,
+        minimal: this.backend.minimal?.() ?? false,
+        usage: true,
+      },
+      cwd,
+      this.transport.discoveryTimeoutMs,
+      signal,
+      (binary, detection) => this.listModels(binary, detection, cwd, signal),
+    );
 
-    const binary = await findBinary(binaries[this.name]);
-    const detection: Detection = {
-      name: this.name,
-      available: !!binary,
-      binary,
-      notes: [],
-      transport: "cli",
-      models: this.name === "claude" ? claudeModels : [],
-      structured: this.name === "cursor" ? "prompted" : "native",
-      correction: "turn",
-      worktree: true,
-      toolPolicies:
-        this.name === "claude" ? ["read-only", "allow", "deny"] : ["read-only"],
-      minimal:
-        this.name === "claude" && !!process.env.ANTHROPIC_API_KEY?.trim(),
-      usage: true,
-    };
-
-    detection.notes.push(capabilityNotes[this.name]);
-    if (!binary) {
-      detection.notes.push(
-        `Install ${binaries[this.name]} and authenticate it before running workflows`,
-      );
-    } else {
-      try {
-        detection.version = await capture(
-          binary,
-          ["--version"],
-          cwd,
-          this.transport.discoveryTimeoutMs,
-          signal,
-        );
-      } catch (error) {
-        detection.available = false;
-        detection.notes.push(errorText(error));
-      }
-
-      if (detection.available && this.name !== "claude") {
-        try {
-          const output = await capture(
-            binary,
-            this.name === "codex" ? ["debug", "models"] : ["models"],
-            cwd,
-            this.transport.discoveryTimeoutMs,
-            signal,
-          );
-
-          if (this.name === "codex") {
-            detection.models = codexModels(output);
-          } else {
-            detection.models = cursorModels(output);
-          }
-
-          if (!detection.models.length) {
-            detection.notes.push(
-              "Model listing was not recognized; backend default is used when model is omitted",
-            );
-          }
-        } catch (error) {
-          detection.notes.push(`Model discovery failed: ${errorText(error)}`);
-        }
-      }
-    }
-
-    signal.throwIfAborted();
-    this.detection = detection;
-
-    return detection;
+    return this.detection;
   }
 
   async run(request: DriverRequest) {
-    const detection = await this.detect(request.cwd, request.signal);
-    if (!detection.available || !detection.binary) {
-      throw new Error(
-        `${this.name} unavailable: ${detection.notes.join("; ")}`,
-      );
-    }
-
+    const binary = availableBinary(
+      await this.detect(request.cwd, request.signal),
+    );
     const temporary = await mkdtemp(join(tmpdir(), "workflow-driver-"));
     try {
       const schemaPath = request.schema
@@ -321,9 +307,13 @@ export class CliDriver implements Driver {
         await writeFile(schemaPath, JSON.stringify(request.schema));
       }
 
-      const invocation = cliArguments(this.name, request, schemaPath);
-      const parser = new CliEventParser(this.name, request.onEvent);
-      const child = new ManagedProcess(detection.binary, invocation.argv, {
+      const invocation = this.backend.invocation(request, schemaPath);
+      if (invocation.warning) {
+        request.onEvent({ type: "warning", text: invocation.warning });
+      }
+
+      const parser = this.backend.parser(request.onEvent);
+      const child = new ManagedProcess(binary, invocation.argv, {
         cwd: request.cwd,
         signal: request.signal,
         timeoutMs: this.transport.agentTimeoutMs,
@@ -339,6 +329,36 @@ export class CliDriver implements Driver {
       return parser.finish(exit.code, exit.error, exit.stderr);
     } finally {
       await rm(temporary, { recursive: true, force: true });
+    }
+  }
+
+  private async listModels(
+    binary: string,
+    detection: Detection,
+    cwd: string,
+    signal: AbortSignal,
+  ) {
+    const { models } = this.backend;
+    if (Array.isArray(models)) {
+      return;
+    }
+
+    try {
+      const output = await capture(
+        binary,
+        models.argv,
+        cwd,
+        this.transport.discoveryTimeoutMs,
+        signal,
+      );
+      detection.models = models.parse(output);
+      if (!detection.models.length) {
+        detection.notes.push(
+          "Model listing was not recognized; backend default is used when model is omitted",
+        );
+      }
+    } catch (error) {
+      detection.notes.push(`Model discovery failed: ${errorText(error)}`);
     }
   }
 }
