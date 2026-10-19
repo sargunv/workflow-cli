@@ -226,7 +226,9 @@ export class WorkflowRun {
   skip(id: number) {
     const controller = this.controllers.get(id);
     if (!controller) {
-      throw new Error(`Agent ${id} is not active or queued`);
+      throw new Error(
+        `Agent ${id} is not active or queued, or is replaying a cached result`,
+      );
     }
 
     controller.abort(new Error("Skipped by user"));
@@ -590,7 +592,6 @@ export class WorkflowRun {
   ): Promise<Json> {
     const id = ++this.count;
     const controller = new AbortController();
-    this.controllers.set(id, controller);
     const signal = AbortSignal.any([this.controller.signal, controller.signal]);
     const phase = options.phase ?? scope.phase;
     const backend = options.backend ?? scope.backend;
@@ -633,10 +634,13 @@ export class WorkflowRun {
     try {
       const outcome = await this.replay.call(
         key,
-        async () =>
-          toJournalValue(
+        async () => {
+          // Cached replays deliver their recorded result, so only live calls can be skipped.
+          this.controllers.set(id, controller);
+          return toJournalValue(
             await this.liveAgent(id, prompt, effective, phase, signal),
-          ),
+          );
+        },
         // Run cancellation leaves an unfinished invocation in the replay trace.
         // An intentional per-agent skip is still a completed, cacheable null.
         () => !this.controller.signal.aborted,
