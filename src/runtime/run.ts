@@ -547,6 +547,12 @@ class WorkflowRun {
           scope.phase = title;
           this.event({ type: "phase", phase: title });
         },
+        warn: (message) => {
+          // Cancellation fails every pending item; those warnings are noise.
+          if (!this.controller.signal.aborted) {
+            this.event({ type: "warning", text: message });
+          }
+        },
         log: (message) => {
           this.store.report.logs.push(message);
           this.persist(() => this.store.save());

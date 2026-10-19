@@ -48,6 +48,7 @@ export interface SandboxHost {
   workflow(ref: Json, args: Json, options: Json): Promise<Json>;
   log(message: string): void;
   phase(title: string): void;
+  warn?(message: string): void;
   signal: AbortSignal;
   holdExecution?: () => () => void;
 }
@@ -212,6 +213,8 @@ class GuestSession {
 
       if (kind === "phase") {
         this.host.phase(text);
+      } else if (kind === "warning") {
+        this.host.warn?.(text);
       } else {
         this.host.log(text);
       }

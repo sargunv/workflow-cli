@@ -83,6 +83,7 @@ void test("pure literal header rejects executable metadata and imports", () => {
 });
 void test("pipeline has no inter-stage barrier, preserves item/index and catches throws", async () => {
   const events: string[] = [];
+  const warnings: string[] = [];
   const result = await executeScript(
     source(
       `return pipeline(['slow','fast','bad'], async item => { if(item === 'bad') throw Error('bad'); return agent(item) }, (previous, original, index) => agent(previous + ':' + original + ':' + index))`,
@@ -98,22 +99,26 @@ void test("pipeline has no inter-stage barrier, preserves item/index and catches
         events.push(text);
         return text;
       },
+      warn: (message) => warnings.push(message),
     }),
   );
   assert.deepEqual(result, ["slow:slow:0", "fast:fast:1", null]);
+  assert.deepEqual(warnings, ["pipeline item 2 returned null: bad"]);
   assert.ok(events.indexOf("fast:fast:1") < events.indexOf("slow"));
 });
 void test("parallel handles failures and enforces explicit item limit", async () => {
+  const warnings: string[] = [];
   assert.deepEqual(
     await executeScript(
       source(
         'return parallel([() => 1, () => {throw Error("bad")}, async () => 3])',
       ),
       null,
-      host(),
+      host({ warn: (message) => warnings.push(message) }),
     ),
     [1, null, 3],
   );
+  assert.deepEqual(warnings, ["parallel item 1 returned null: bad"]);
   await assert.rejects(
     executeScript(
       source(`return parallel(Array(${itemsPerCall + 1}).fill(() => 1))`),
