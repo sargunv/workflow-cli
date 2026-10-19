@@ -100,5 +100,33 @@ export async function loadConfig(cwd: string): Promise<Config> {
 
   const local = await readOptional(join(cwd, ".workflow", "config.json"));
 
-  return configSchema.parse({ ...global, ...local });
+  return configSchema.parse({
+    ...global,
+    ...local,
+    defaults: overlay(global.defaults, local.defaults),
+    transport: overlay(global.transport, local.transport),
+    sandbox: overlay(global.sandbox, local.sandbox),
+    profiles: overlay(global.profiles, local.profiles, 2),
+  });
+}
+
+// Local objects override global ones field by field, `depth` levels deep;
+// anything else, including arrays and schemas, is replaced wholesale.
+function overlay(base: unknown, override: unknown, depth = 1): unknown {
+  if (!isRecord(base) || !isRecord(override)) {
+    return override === undefined ? base : override;
+  }
+
+  const merged = { ...base, ...override };
+  if (depth > 1) {
+    for (const key of Object.keys(override)) {
+      merged[key] = overlay(base[key], override[key], depth - 1);
+    }
+  }
+
+  return merged;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

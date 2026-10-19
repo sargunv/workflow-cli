@@ -93,8 +93,8 @@ and retained work before replaying an interrupted editing task.
 
 Global configuration lives at `$XDG_CONFIG_HOME/workflow/config.json`,
 defaulting to `~/.config/workflow/config.json`. `.workflow/config.json` in the
-working directory overrides global top-level fields. Run flags override those
-defaults.
+working directory overrides global fields; `defaults`, `transport`, `sandbox`
+and each named profile merge field by field. Run flags override those defaults.
 
 ```json
 {
