@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 
+import { z } from "zod";
+
 import { controlRun, inspectReport } from "../src/runtime/control.js";
 import { waitForRun } from "../src/wait.js";
 import {
@@ -13,7 +15,7 @@ import {
   project,
   runningAgents,
 } from "./helpers/cli.js";
-import { waitFor } from "./helpers/common.js";
+import { alive, exited, waitFor } from "./helpers/common.js";
 
 void test("background skip and stop control the exact run; show includes active prompts", async () => {
   // The flag overrides a config that would leave only one agent running.
@@ -93,15 +95,28 @@ void test("background runs can be waited on and resumed from cache; launch failu
 
 void test("a startup deadline cancels discovery and never starts leaf work", async () => {
   const p = await project("return agent('must not start');", {
-    transport: { launchTimeoutMs: 500, discoveryTimeoutMs: 10_000 },
+    transport: { launchTimeoutMs: 1000, discoveryTimeoutMs: 30_000 },
   });
-  p.env.WORKFLOW_FIXTURE_DISCOVERY_DELAY = "5000";
+  const pidFile = join(p.cwd, "discovery.json");
+  p.env.WORKFLOW_FIXTURE_DISCOVERY_DELAY = "20000";
+  p.env.WORKFLOW_FIXTURE_DISCOVERY_PID = pidFile;
   const started = performance.now();
   const launch = await command(["run", p.script, "--background", "--json"], p);
-  assert.equal(launch.code, 1);
-  assert.match(launch.stderr, /timed out/);
-  assert.ok(performance.now() - started < 4000);
-  await assert.rejects(readFile(join(p.cwd, "calls"), "utf8"));
-  const id = await onlyRunId(p);
-  assert.notEqual((await inspectReport(p.root, id)).status, "running");
+  const discovery = z
+    .object({ pid: z.number(), supervisor: z.number() })
+    .parse(JSON.parse(await readFile(pidFile, "utf8")));
+  try {
+    assert.equal(launch.code, 1);
+    assert.match(launch.stderr, /timed out/);
+    assert.ok(performance.now() - started < 4000);
+    // The backend would otherwise outlive the launch by several seconds.
+    await exited(discovery.pid);
+    await assert.rejects(readFile(join(p.cwd, "calls"), "utf8"));
+    const id = await onlyRunId(p);
+    assert.notEqual((await inspectReport(p.root, id)).status, "running");
+  } finally {
+    if (alive(discovery.supervisor)) {
+      process.kill(-discovery.supervisor, "SIGKILL");
+    }
+  }
 });

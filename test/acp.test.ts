@@ -50,6 +50,7 @@ void test("ACP config, permissions and correction turns share one leaf session",
   );
   const detection = await detect();
   assert.equal(detection.available, true, detection.notes.join("; "));
+  assert.equal(detection.correction, "session");
   assert.deepEqual(detection.models[0], {
     id: "fixture-small",
     default: true,

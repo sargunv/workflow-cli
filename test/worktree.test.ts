@@ -31,16 +31,28 @@ void test("finished worktrees are removed only when they hold nothing of value",
   git(committed.path, "add", "change.txt");
   git(committed.path, "commit", "-qm", "agent change");
   assert.equal((await finishWorktree(dir, committed)).kept, true);
+  assert.equal(
+    await readFile(join(committed.path, "change.txt"), "utf8"),
+    "important work",
+  );
 
   const copied = await createWorktree(dir, "wf_test", 3, env);
   await writeFile(join(copied.path, ".env"), "VALUABLE_CHANGE=1\n");
   assert.equal((await finishWorktree(dir, copied)).kept, true);
+  assert.equal(
+    await readFile(join(copied.path, ".env"), "utf8"),
+    "VALUABLE_CHANGE=1\n",
+  );
   assert.equal(await readFile(join(dir, ".env"), "utf8"), "ORIGINAL=1\n");
 
   const ignored = await createWorktree(dir, "wf_test", 4);
   await mkdir(join(ignored.path, "local-cache"));
   await writeFile(join(ignored.path, "local-cache", "result"), "output");
   assert.equal((await finishWorktree(dir, ignored)).kept, true);
+  assert.equal(
+    await readFile(join(ignored.path, "local-cache", "result"), "utf8"),
+    "output",
+  );
 });
 
 void test("shared paths cannot reach outside the repository", async () => {
