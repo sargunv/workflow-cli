@@ -5,8 +5,8 @@ tasks out to leaf agents, verifies their output and returns structured data; the
 agents can be Claude Code, Codex or Cursor through their headless CLIs, or
 OpenCode, Kimi or Qwen through ACP. Scripts run in a deterministic QuickJS
 sandbox and every agent call is journaled, so after editing a script you can
-resume a run and only the changed calls run again. The script API follows Claude
-Code's Workflow tool.
+resume a run and replay its calls up to the first change; everything from there
+on runs live. The script API follows Claude Code's Workflow tool.
 
 ## Example
 
@@ -18,8 +18,16 @@ export const meta = {
 
 return pipeline(
   args.files,
-  (file) => agent(`Report the most serious bug in ${file}.`, { label: file }),
-  (bug, file) => bug && agent(`Try to disprove this report on ${file}: ${bug}`),
+  (file) =>
+    agent(`Report the most serious bug in ${file}.`, {
+      label: file,
+      toolPolicy: "read-only",
+    }),
+  (bug, file) =>
+    bug &&
+    agent(`Try to disprove this report on ${file}: ${bug}`, {
+      toolPolicy: "read-only",
+    }),
 );
 ```
 
@@ -31,8 +39,8 @@ workflow run review.js --backend claude --model <model from workflow info> \
 Each file gets its own finder agent, and each verifier starts as soon as its
 finder returns; a failed agent returns `null`. Live progress goes to stderr and
 the result to stdout. The run is recorded under `.workflow/runs/`; edit the
-script and pass `--resume <run-id>` to replay the unchanged calls from the
-journal.
+script and pass `--resume <run-id>` to replay calls from the journal until the
+first changed one; later calls run live.
 
 ## Install
 
@@ -59,7 +67,7 @@ available.
 | `workflow info`                           | Detect installed backends and their capabilities           |
 | `workflow run <script>`                   | Run a script file, or `-` for stdin                        |
 | `workflow run <script> --background`      | Return a run ID after preflight and keep running           |
-| `workflow run <script> --resume <run-id>` | Replay unchanged calls from a previous run                 |
+| `workflow run <script> --resume <run-id>` | Replay a previous run up to the first change               |
 | `workflow wait <run-id>`                  | Follow a background run and print its result               |
 | `workflow show <run-id>`                  | Summarize a run; `--agent <id> [--transcript]` drills in   |
 | `workflow journal <run-id>`               | Print the raw agent result journal                         |
