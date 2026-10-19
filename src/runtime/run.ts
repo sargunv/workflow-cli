@@ -267,7 +267,7 @@ class WorkflowRun {
       this.controller.signal.throwIfAborted();
       if (!detected.available) {
         throw new Error(
-          `Backend ${backend} is unavailable: ${detected.notes.join("; ")}\nRun workflow info to inspect capabilities.`,
+          `Backend ${backend} is unavailable: ${detected.notes.join("; ")}\nRun workflow-cli info to inspect capabilities.`,
         );
       }
     }

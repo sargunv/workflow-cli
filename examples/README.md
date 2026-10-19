@@ -1,13 +1,13 @@
 # Runnable recipes
 
-Run `workflow info` first and choose an installed backend and model. Every
+Run `workflow-cli info` first and choose an installed backend and model. Every
 review recipe requests `toolPolicy: 'read-only'`; use a backend that advertises
 it. ACP backends reject that restriction. These scripts inherit the run-level
 backend/model; they contain no vendor-specific model names. Live runs consume
 subscription quota.
 
 ```sh
-workflow run ./examples/adversarial-verify.js --backend claude --model <model-from-info> \
+workflow-cli run ./examples/adversarial-verify.js --backend claude --model <model-from-info> \
   --args '{"task":"Review /absolute/repo/src/cache.ts","findings":["The cache retains expired entries"]}'
 ```
 

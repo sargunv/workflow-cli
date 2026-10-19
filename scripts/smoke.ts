@@ -55,7 +55,7 @@ try {
     ],
     work,
   );
-  const workflow = join(prefix, "bin", "workflow");
+  const cli = join(prefix, "bin", "workflow-cli");
 
   const project = join(work, "project");
   const bin = join(project, "bin");
@@ -75,12 +75,12 @@ try {
     XDG_CONFIG_HOME: join(project, "config"),
   };
 
-  const reported = run(workflow, ["--version"], project, env).trim();
+  const reported = run(cli, ["--version"], project, env).trim();
   if (reported !== version) {
     throw new Error(`Installed CLI reports ${reported}, expected ${version}`);
   }
 
-  const output = run(workflow, ["run", "main.js", "--json"], project, env);
+  const output = run(cli, ["run", "main.js", "--json"], project, env);
   const report = z
     .object({ result: z.unknown() })
     .parse(JSON.parse(output.trim().split("\n").at(-1) ?? "null"));

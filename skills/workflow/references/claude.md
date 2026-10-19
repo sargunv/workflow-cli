@@ -1,8 +1,8 @@
 # Claude model selection
 
 These are opinionated defaults for the Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable
-5.1 generation. Prefer newer models in the same tier when `workflow info` lists
-them.
+5.1 generation. Prefer newer models in the same tier when `workflow-cli info`
+lists them.
 
 Haiku is fast and cheap. Use Haiku for extraction, summaries, or small bounded
 assignments.
