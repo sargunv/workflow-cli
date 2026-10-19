@@ -3,9 +3,17 @@
   "version": "0.1.0",
   "description": "Deterministic multi-agent workflows across coding agent harnesses",
   "type": "module",
+  "keywords": ["agents", "workflow", "orchestration", "claude", "codex", "cli"],
+  "homepage": "https://github.com/sargunv/workflow-cli#readme",
+  "bugs": "https://github.com/sargunv/workflow-cli/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sargunv/workflow-cli.git"
+  },
   "license": "MIT",
+  "author": "Sargun Vohra",
   "bin": { "workflow": "dist/cli.js" },
-  "files": ["dist", "skills", "examples", "README.md", "ROADMAP.md"],
+  "files": ["dist", "skills", "examples", "README.md"],
   "engines": { "node": ">=24" },
   "packageManager": "pnpm@11.25.0",
   "scripts": {
