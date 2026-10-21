@@ -30,7 +30,7 @@ interface Pending {
   timer: NodeJS.Timeout | undefined;
 }
 
-// Native ACP transports observed against OpenCode 1.18.28, Kimi 0.41.0 and
+// Native ACP transports observed against OpenCode 2.1.2, Kimi 0.41.0 and
 // Qwen 0.23.0. One process per leaf bounds a crash/cancel to one agent.
 class AcpConnection {
   readonly process: ManagedProcess;
