@@ -14,6 +14,9 @@ tests assert on. Tests must never obtain fixtures by invoking a real agent.
 - `cursor-success.jsonl`: Cursor CLI 2026.09.02 session, 2026-09-05.
 - `cursor-models.txt`: `cursor-agent models` from Cursor CLI 2026.09.02,
   2026-09-05.
+- `grok-success.jsonl`: Grok CLI 1.0.62 session with a JSON schema and the
+  read-only tool list, 2026-10-21.
+- `grok-models.txt`: `grok models` from Grok CLI 1.0.62, trimmed, 2026-10-21.
 - `acp-opencode.jsonl`, `acp-kimi.jsonl`, `acp-qwen.jsonl`: ACP sessions with
   both turns, 2026-09-05.
 - `qwen-model-config.json`: Qwen ACP config surfaces before and after selecting

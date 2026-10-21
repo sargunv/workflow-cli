@@ -3,12 +3,18 @@ import { readFile } from "node:fs/promises";
 import { delimiter, dirname } from "node:path";
 import { test } from "node:test";
 
-import { codexModels, cursorModels, CliDriver } from "../src/drivers/cli.ts";
+import {
+  codexModels,
+  cursorModels,
+  CliDriver,
+  grokModels,
+} from "../src/drivers/cli.ts";
 import {
   AcpEventParser,
   ClaudeEventParser,
   CodexEventParser,
   CursorEventParser,
+  GrokEventParser,
   object,
 } from "../src/drivers/events.ts";
 import type { CliEventParser } from "../src/drivers/events.ts";
@@ -26,6 +32,7 @@ const parsers = {
   claude: ClaudeEventParser,
   codex: CodexEventParser,
   cursor: CursorEventParser,
+  grok: GrokEventParser,
 };
 
 async function replayFixture(backend: keyof typeof parsers, name: string) {
@@ -43,7 +50,7 @@ function feed(parser: CliEventParser, ...events: unknown[]) {
   }
 }
 
-void test("recorded Claude, Codex and Cursor streams yield final output and usage", async () => {
+void test("recorded Claude, Codex, Cursor and Grok streams yield final output and usage", async () => {
   const claude = await replayFixture("claude", "claude-success.jsonl");
   const result = claude.parser.finish(0);
   assert.equal(result.exitInfo.error, undefined);
@@ -84,6 +91,20 @@ void test("recorded Claude, Codex and Cursor streams yield final output and usag
     assert.deepEqual(parseStructured(finished.text), { code: 731 });
     assert.deepEqual(finished.usage, usage);
   }
+
+  // Grok's OAuth sessions report a zero cost, which means unreported.
+  const grok = await replayFixture("grok", "grok-success.jsonl");
+  const grokResult = grok.parser.finish(0);
+  assert.equal(grokResult.exitInfo.error, undefined);
+  assert.deepEqual(grokResult.structured, {
+    correct: false,
+    reason: "add subtracts: it returns a - b.",
+  });
+  assert.deepEqual(grokResult.usage, {
+    input: 16316,
+    cachedInput: 9216,
+    output: 181,
+  });
 });
 
 void test("recorded ACP streams keep each turn's final answer and only real usage", async () => {
@@ -137,6 +158,11 @@ void test("recorded model catalogs keep listed models and representable efforts"
     "xhigh",
     "max",
   ]);
+  const grok = grokModels(
+    await readFile(fixturePath("grok-models.txt"), "utf8"),
+  );
+  assert.equal(grok.length, 5);
+  assert.equal(grok.find((model) => model.default)?.id, "grok/grok-4.7");
   // Catalog order does not prove the user's configured default.
   assert.ok(codex.every((model) => !model.default));
 
@@ -237,6 +263,48 @@ void test("Claude classifies only failed terminal refusals as usage limits", () 
   assert.equal(recovered.finish(1).usageLimit, undefined);
 });
 
+// Messages from the grok-build source (xai-grok-shell sampling/error.rs,
+// sampling-types provider_error.rs) as headless prints them in errors[].
+void test("Grok classifies credit blocks, not throttles, as usage limits", () => {
+  const cases: Array<[string | undefined, string]> = [
+    [
+      "",
+      "You’ve reached your free Grok Build usage limit for now. Get SuperGrok for much higher limits, or try again later: https://grok.com/supergrok?referrer=grok-build",
+    ],
+    [
+      "personal-team-blocked:spending-limit",
+      "personal-team-blocked:spending-limit: You ran out of credits",
+    ],
+    [
+      "",
+      'Internal error: {"message":"API error (status 402 Payment Required): Grok Build usage balance exhausted","http_status":402}',
+    ],
+    [
+      undefined,
+      "You’ve hit the rate limit for your plan. Upgrade your account or try again later.",
+    ],
+    [
+      undefined,
+      "resource-exhausted: Too many requests for team, try again later",
+    ],
+  ];
+  for (const [limit, message] of cases) {
+    const parser = new GrokEventParser(() => {});
+    feed(parser, {
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: [message],
+    });
+    const usageLimit = parser.finish(1).usageLimit;
+    assert.equal(
+      usageLimit?.message,
+      limit === undefined ? undefined : message,
+    );
+    assert.equal(usageLimit?.limit, limit || undefined, message);
+  }
+});
+
 void test("quota warnings, tool output and recoverable throttles do not interrupt", () => {
   for (const backend of ["claude", "codex", "cursor"] as const) {
     const events: DriverEvent[] = [];
@@ -270,7 +338,7 @@ void test("quota warnings, tool output and recoverable throttles do not interrup
 });
 
 void test("missing token counters are reported as unknown, not zero", () => {
-  for (const backend of ["claude", "codex", "cursor"] as const) {
+  for (const backend of ["claude", "codex", "cursor", "grok"] as const) {
     const parser = new parsers[backend](() => {});
     feed(parser, {
       type: backend === "codex" ? "turn.completed" : "result",
@@ -278,6 +346,18 @@ void test("missing token counters are reported as unknown, not zero", () => {
     });
     assert.equal(parser.finish(0).usage, undefined, backend);
   }
+
+  // Grok zero-fills the counters when a turn never reached the model.
+  const grok = new GrokEventParser(() => {});
+  feed(grok, {
+    type: "result",
+    subtype: "error_during_execution",
+    is_error: true,
+    errors: ["Couldn't set model"],
+    total_cost_usd: 0,
+    usage: { input_tokens: 0, output_tokens: 0 },
+  });
+  assert.equal(grok.finish(1).usage, undefined);
 });
 
 void test("failed CLI exits prefer the parsed error, then stderr, then the exit code", async (t) => {
@@ -330,5 +410,34 @@ void test("Claude minimal mode requires explicit API-key authentication", async 
   assert.equal(
     (await new CliDriver("claude").detect(process.cwd())).minimal,
     true,
+  );
+});
+
+void test("Grok read-only requests also remove its MCP meta-tools", async (t) => {
+  const cwd = await tempDir("events");
+  const argvLog = `${cwd}/argv.jsonl`;
+  await installFake(cwd, "fake-claude", "grok");
+  setEnv(t, {
+    PATH: [cwd, dirname(process.execPath)].join(delimiter),
+    WORKFLOW_FIXTURE_ARGV: argvLog,
+  });
+  const result = await new CliDriver("grok").run({
+    prompt: "review the diff",
+    cwd,
+    systemAppend: "test",
+    toolPolicy: "read-only",
+    signal: new AbortController().signal,
+    onEvent: () => {},
+  });
+  assert.equal(result.text, "review the diff");
+
+  // Discovery runs `grok models` first; the agent invocation is logged last.
+  const argv: string[] = JSON.parse(
+    (await readFile(argvLog, "utf8")).trim().split("\n").at(-1) ?? "[]",
+  );
+  assert.equal(argv[argv.indexOf("--tools") + 1], "read_file,grep,list_dir");
+  assert.equal(
+    argv[argv.indexOf("--disallowed-tools") + 1],
+    "Agent,workflow,search_tool,use_tool",
   );
 });

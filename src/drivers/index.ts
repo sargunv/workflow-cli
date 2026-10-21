@@ -11,6 +11,7 @@ export function createDrivers(
     claude: new CliDriver("claude", transport),
     codex: new CliDriver("codex", transport),
     cursor: new CliDriver("cursor", transport),
+    grok: new CliDriver("grok", transport),
     opencode: new AcpDriver("opencode", transport),
     kimi: new AcpDriver("kimi", transport),
     qwen: new AcpDriver("qwen", transport),

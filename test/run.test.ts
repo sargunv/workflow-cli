@@ -56,6 +56,7 @@ async function fixture(
       claude: driver,
       codex: driver,
       cursor: driver,
+      grok: driver,
       opencode: driver,
       kimi: driver,
       qwen: driver,

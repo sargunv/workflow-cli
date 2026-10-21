@@ -2,7 +2,7 @@
 
 A CLI that runs JavaScript workflow scripts across coding agents. A script fans
 tasks out to leaf agents, verifies their output and returns structured data; the
-agents can be Claude Code, Codex or Cursor through their headless CLIs, or
+agents can be Claude Code, Codex, Cursor or Grok through their headless CLIs, or
 OpenCode, Kimi or Qwen through ACP. Scripts run in a deterministic QuickJS
 sandbox and every agent call is journaled, so after editing a script you can
 resume a run and replay its calls up to the first change; everything from there

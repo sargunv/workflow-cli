@@ -25,6 +25,7 @@ export const backendName = z.enum([
   "opencode",
   "kimi",
   "cursor",
+  "grok",
   "qwen",
 ]);
 
