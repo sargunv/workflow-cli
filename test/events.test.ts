@@ -134,8 +134,8 @@ void test("recorded ACP streams keep each turn's final answer and only real usag
       turns.map((turn) => turn.usage),
       backend === "opencode"
         ? [
-            { input: 6977, cachedInput: 6656, output: 9 },
-            { input: 7015, cachedInput: 6656, output: 10 },
+            { input: 14333, cachedInput: 7040, output: 39 },
+            { input: 7238, cachedInput: 7040, output: 10 },
           ]
         : [undefined, undefined],
       backend,

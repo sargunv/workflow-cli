@@ -1,16 +1,7 @@
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "tool_call", "toolCallId": "call_pTEUVOQ6HlywRMPcoJ6H7COL", "title": "read"}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "{\""}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "code"}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "\":"}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "731"}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "}"}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 6977, "size": 400000}}}
-{"id": 4, "result": {"stopReason": "end_turn", "usage": {"inputTokens": 321, "outputTokens": 9, "totalTokens": 6986, "cachedReadTokens": 6656}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "{\""}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "remember"}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "ed"}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "\":"}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "731"}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "}"}}}}
-{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 7015, "size": 400000}}}
-{"id": 5, "result": {"stopReason": "end_turn", "usage": {"inputTokens": 359, "outputTokens": 10, "totalTokens": 7025, "cachedReadTokens": 6656}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "tool_call", "toolCallId": "call_4a8a8349bb4c4a2eaef4cc0c4ad93efd", "name": "read", "title": "read", "kind": "read", "status": "pending", "locations": [], "rawInput": {}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "messageId": "msg_15dc58f68001iYNbrHcXYpvHNe", "content": {"type": "text", "text": "{\"code\":731}"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 7209, "size": 1050000, "cost": {"amount": 0.0008821000000000001, "currency": "USD"}}}}
+{"id": 5, "result": {"stopReason": "end_turn", "usage": {"inputTokens": 7293, "outputTokens": 39, "totalTokens": 14372, "cachedReadTokens": 7040}, "_meta": {}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "agent_message_chunk", "messageId": "msg_15dc593f70011e007PXNWunvTl", "content": {"type": "text", "text": "{\"remembered\":731}"}}}}
+{"method": "session/update", "params": {"sessionId": "fixture-session", "update": {"sessionUpdate": "usage_update", "used": 7248, "size": 1050000, "cost": {"amount": 0.0009773000000000002, "currency": "USD"}}}}
+{"id": 6, "result": {"stopReason": "end_turn", "usage": {"inputTokens": 198, "outputTokens": 10, "totalTokens": 7248, "cachedReadTokens": 7040}, "_meta": {}}}

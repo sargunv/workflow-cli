@@ -17,8 +17,8 @@ tests assert on. Tests must never obtain fixtures by invoking a real agent.
 - `grok-success.jsonl`: Grok CLI 1.0.62 session with a JSON schema and the
   read-only tool list, 2026-10-21.
 - `grok-models.txt`: `grok models` from Grok CLI 1.0.62, trimmed, 2026-10-21.
-- `acp-opencode.jsonl`, `acp-kimi.jsonl`, `acp-qwen.jsonl`: ACP sessions with
-  both turns, 2026-09-05.
+- `acp-opencode.jsonl`: OpenCode 2.1.2 ACP session with both turns, 2026-10-21.
+- `acp-kimi.jsonl`, `acp-qwen.jsonl`: ACP sessions with both turns, 2026-09-05.
 - `qwen-model-config.json`: Qwen ACP config surfaces before and after selecting
   Flash, 2026-09-05.
 - `qwen-session-config.json`: `models` from a Qwen ACP `session/new` response,
