@@ -17,6 +17,7 @@ import {
   ClaudeEventParser,
   CodexEventParser,
   CursorEventParser,
+  GrokEventParser,
   array,
   object,
   string,
@@ -57,9 +58,22 @@ export function cursorModels(output: string): ModelInfo[] {
     );
 }
 
+export function grokModels(output: string): ModelInfo[] {
+  return output
+    .split("\n")
+    .map((line) => /^\s*([-*])\s+(\S+)/.exec(line))
+    .flatMap((match) =>
+      match?.[2]
+        ? [{ id: match[2], default: match[1] === "*", efforts: [] }]
+        : [],
+    );
+}
+
 interface CliInvocation {
   argv: string[];
   stdin: string;
+  /** Written to the prompt path for backends that do not read stdin. */
+  promptFile?: string;
   warning?: string;
 }
 
@@ -68,17 +82,26 @@ interface CliBackend {
   notes: string[];
   structured: Detection["structured"];
   toolPolicies: string[];
+  readTools: string[];
   minimal?: () => boolean;
   /** A static list, or the subcommand that lists models and its parser. */
   models:
     | ModelInfo[]
     | { argv: string[]; parse: (output: string) => ModelInfo[] };
-  invocation: (request: DriverRequest, schemaPath?: string) => CliInvocation;
+  invocation: (
+    request: DriverRequest,
+    schemaPath: string | undefined,
+    promptPath: string,
+  ) => CliInvocation;
   parser: (emit: (event: DriverEvent) => void) => CliEventParser;
 }
 
-// Flags and event shapes verified against Claude 2.1.261, Codex 0.153.3 and
-// Cursor 2026.09.02. Tests use fixtures, never subscriptions.
+const claudeReadTools = ["Read", "Grep", "Glob"];
+
+const grokReadTools = ["read_file", "grep", "list_dir"];
+
+// Flags and event shapes verified against Claude 2.1.261, Codex 0.153.3,
+// Cursor 2026.09.02 and Grok 1.0.62. Tests use fixtures, never subscriptions.
 const backends = {
   claude: {
     executable: "claude",
@@ -89,6 +112,7 @@ const backends = {
     ],
     structured: "native",
     toolPolicies: ["read-only", "allow", "deny"],
+    readTools: claudeReadTools,
     minimal: () => !!process.env.ANTHROPIC_API_KEY?.trim(),
     models: [
       { id: "fable", efforts: [] },
@@ -107,6 +131,7 @@ const backends = {
     ],
     structured: "native",
     toolPolicies: ["read-only"],
+    readTools: [],
     models: { argv: ["debug", "models"], parse: codexModels },
     invocation: codexInvocation,
     parser: (emit) => new CodexEventParser(emit),
@@ -118,9 +143,23 @@ const backends = {
     ],
     structured: "prompted",
     toolPolicies: ["read-only"],
+    readTools: [],
     models: { argv: ["models"], parse: cursorModels },
     invocation: cursorInvocation,
     parser: (emit) => new CursorEventParser(emit),
+  },
+  grok: {
+    executable: "grok",
+    notes: [
+      "Omit model to use Grok's configured default",
+      "Grok ignores effort, with a warning, for models without effort levels",
+    ],
+    structured: "native",
+    toolPolicies: ["read-only", "allow", "deny"],
+    readTools: grokReadTools,
+    models: { argv: ["models"], parse: grokModels },
+    invocation: grokInvocation,
+    parser: (emit) => new GrokEventParser(emit),
   },
 } satisfies Record<string, CliBackend>;
 
@@ -131,7 +170,6 @@ function claudeInvocation(request: DriverRequest): CliInvocation {
     "stream-json",
     "--verbose",
     "--dangerously-skip-permissions",
-    "--no-session-persistence",
     "--append-system-prompt",
     request.systemAppend,
   ];
@@ -155,7 +193,7 @@ function claudeInvocation(request: DriverRequest): CliInvocation {
   // Exclude orchestration tools; leaves cannot re-delegate their assignment.
   const deny = ["Agent", "Workflow"];
   if (request.toolPolicy === "read-only") {
-    argv.push("--tools", "Read,Grep,Glob");
+    argv.push("--tools", claudeReadTools.join(","));
   } else if (request.toolPolicy) {
     if (request.toolPolicy.allow) {
       argv.push("--tools", request.toolPolicy.allow.join(","));
@@ -175,14 +213,7 @@ function codexInvocation(
   request: DriverRequest,
   schemaPath?: string,
 ): CliInvocation {
-  const argv = [
-    "exec",
-    "--json",
-    "--skip-git-repo-check",
-    "--ephemeral",
-    "-C",
-    request.cwd,
-  ];
+  const argv = ["exec", "--json", "--skip-git-repo-check", "-C", request.cwd];
 
   if (request.toolPolicy === "read-only") {
     argv.push("-s", "read-only");
@@ -254,6 +285,72 @@ function cursorInvocation(request: DriverRequest): CliInvocation {
   return { argv, stdin: "", warning };
 }
 
+function grokInvocation(
+  request: DriverRequest,
+  schemaPath: string | undefined,
+  promptPath: string,
+): CliInvocation {
+  // Headless grok never reads stdin. --verbatim keeps a task that starts with a
+  // slash command or names a skill from being resolved as one.
+  const argv = [
+    "--prompt-file",
+    promptPath,
+    "--verbatim",
+    "--output-format",
+    "streaming-messages-json",
+    "--always-approve",
+    "--no-auto-update",
+    "--cwd",
+    request.cwd,
+    "--rules",
+    request.systemAppend,
+  ];
+
+  if (request.model) {
+    argv.push("--model", request.model);
+  }
+
+  if (request.effort) {
+    argv.push("--effort", request.effort);
+  }
+
+  if (request.schema) {
+    argv.push("--json-schema", JSON.stringify(request.schema));
+  }
+
+  if (request.minimal) {
+    throw new Error("Grok does not support minimal context mode");
+  }
+
+  // Exclude orchestration tools; leaves cannot re-delegate their assignment.
+  const deny = ["Agent", "workflow"];
+  let allow: string[] | undefined;
+  if (request.toolPolicy === "read-only") {
+    allow = grokReadTools;
+  } else if (request.toolPolicy) {
+    allow = request.toolPolicy.allow;
+    deny.push(...(request.toolPolicy.deny ?? []));
+  }
+
+  // Grok reads an empty allowlist as no allowlist, and has no way to grant
+  // nothing. An allowlist keeps the MCP meta-tools unless they are also denied.
+  if (allow) {
+    const granted = allow;
+    if (!granted.length) {
+      throw new Error("Grok cannot enforce an empty tool allowlist");
+    }
+
+    argv.push("--tools", granted.join(","));
+    deny.push(
+      ...["search_tool", "use_tool"].filter((tool) => !granted.includes(tool)),
+    );
+  }
+
+  argv.push("--disallowed-tools", deny.join(","));
+
+  return { argv, stdin: "", promptFile: request.prompt };
+}
+
 export class CliDriver implements Driver {
   private detection?: Detection;
 
@@ -288,6 +385,7 @@ export class CliDriver implements Driver {
         correction: "turn",
         worktree: true,
         toolPolicies: this.backend.toolPolicies,
+        readTools: this.backend.readTools,
         minimal: this.backend.minimal?.() ?? false,
         usage: true,
       },
@@ -313,7 +411,16 @@ export class CliDriver implements Driver {
         await writeFile(schemaPath, JSON.stringify(request.schema));
       }
 
-      const invocation = this.backend.invocation(request, schemaPath);
+      const promptPath = join(temporary, "prompt.txt");
+      const invocation = this.backend.invocation(
+        request,
+        schemaPath,
+        promptPath,
+      );
+      if (invocation.promptFile !== undefined) {
+        await writeFile(promptPath, invocation.promptFile);
+      }
+
       if (invocation.warning) {
         request.onEvent({ type: "warning", text: invocation.warning });
       }

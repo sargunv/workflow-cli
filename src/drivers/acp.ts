@@ -298,6 +298,7 @@ export class AcpDriver implements Driver {
         correction: "session",
         worktree: true,
         toolPolicies: [],
+        readTools: [],
         minimal: false,
         usage: backends[this.name].usage,
       },

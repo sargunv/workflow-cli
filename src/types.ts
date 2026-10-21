@@ -25,6 +25,7 @@ export const backendName = z.enum([
   "opencode",
   "kimi",
   "cursor",
+  "grok",
   "qwen",
 ]);
 
@@ -158,6 +159,8 @@ export interface Detection {
   correction: "session" | "turn";
   worktree: boolean;
   toolPolicies: string[];
+  /** Backend tool names a read-only policy grants; corrections stay within them. */
+  readTools: string[];
   minimal: boolean;
   usage: boolean;
 }

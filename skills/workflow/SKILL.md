@@ -186,13 +186,14 @@ Resume replays the longest unchanged prefix of prompts and effective options
 (including labels, phases, defaults and cwd); the first changed, new or
 unfinished call and everything after it run live. Calls unfinished when a run
 was stopped run live on resume, while a skipped agent stays a cached null. A
-confirmed Claude or Codex usage limit stops the whole run and reports the reset
-time; resume once access returns. Other completed failures, including timeouts
-and exhausted corrections, stay cached; change the affected prompt or options,
-or start a fresh run, to retry them. Omitted args reuse the saved input. Cached
-transcripts are read from their originating run, so keep its artifacts. Replay
-does not undo edits an interrupted agent already made; inspect retained
-worktrees before re-running mutating work.
+confirmed Claude, Codex or Grok usage limit stops the whole run and reports the
+reset time when the backend gives one; resume once access returns. Other
+completed failures, including timeouts and exhausted corrections, stay cached;
+change the affected prompt or options, or start a fresh run, to retry them.
+Omitted args reuse the saved input. Cached transcripts are read from their
+originating run, so keep its artifacts. Replay does not undo edits an
+interrupted agent already made; inspect retained worktrees before re-running
+mutating work.
 
 Read the journal before diagnosing an empty result: distinguish errored,
 skipped, empty text, and a valid empty structured object. Full backend streams

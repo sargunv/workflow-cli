@@ -29,6 +29,11 @@ if (process.argv.includes("--version")) {
     prompt += chunk;
   });
   process.stdin.on("end", () => {
+    // Grok takes its prompt from a file instead of stdin.
+    const promptFile = process.argv.indexOf("--prompt-file");
+    if (promptFile !== -1) {
+      prompt = fs.readFileSync(process.argv[promptFile + 1], "utf8");
+    }
     if (process.env.WORKFLOW_FIXTURE_CALLS) {
       fs.appendFileSync(process.env.WORKFLOW_FIXTURE_CALLS, prompt + "\n");
     }

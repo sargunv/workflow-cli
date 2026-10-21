@@ -352,6 +352,40 @@ export class CursorEventParser extends StreamJsonEventParser {
   }
 }
 
+export class GrokEventParser extends StreamJsonEventParser {
+  // Grok fills unknown spend with zeros (OAuth sessions never report cost), so
+  // a zero means unreported, not free.
+  protected event(event: Record<string, unknown>) {
+    super.event(event);
+
+    if (event.type === "result" && this.usage) {
+      if (this.usage.input === 0 && this.usage.output === 0) {
+        this.usage = undefined;
+      } else if (this.usage.cost === 0) {
+        delete this.usage.cost;
+      }
+    }
+  }
+
+  // Grok's result has no typed limit or reset, only the message: the free-tier
+  // paywall text, or a 402/credit block whose text may lead with a limit slug.
+  // A 429 that outlasts Grok's retry is a throttle, not a refusal.
+  protected failed() {
+    const message = this.error ?? "";
+    if (
+      !/^You[’']ve reached your free Grok Build usage limit\b/.test(message) &&
+      !/\bstatus 402\b|spending-limit|out of credits|usage balance exhausted|usage limit reached/i.test(
+        message,
+      )
+    ) {
+      return;
+    }
+
+    const slug = /^([\w-]+:[\w-]+): /.exec(message)?.[1];
+    this.recordUsageLimit({ message, ...(slug ? { limit: slug } : {}) });
+  }
+}
+
 export class AcpEventParser {
   private text = "";
 
