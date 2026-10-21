@@ -82,6 +82,7 @@ interface CliBackend {
   notes: string[];
   structured: Detection["structured"];
   toolPolicies: string[];
+  readTools: string[];
   minimal?: () => boolean;
   /** A static list, or the subcommand that lists models and its parser. */
   models:
@@ -95,6 +96,10 @@ interface CliBackend {
   parser: (emit: (event: DriverEvent) => void) => CliEventParser;
 }
 
+const claudeReadTools = ["Read", "Grep", "Glob"];
+
+const grokReadTools = ["read_file", "grep", "list_dir"];
+
 // Flags and event shapes verified against Claude 2.1.261, Codex 0.153.3,
 // Cursor 2026.09.02 and Grok 1.0.62. Tests use fixtures, never subscriptions.
 const backends = {
@@ -107,6 +112,7 @@ const backends = {
     ],
     structured: "native",
     toolPolicies: ["read-only", "allow", "deny"],
+    readTools: claudeReadTools,
     minimal: () => !!process.env.ANTHROPIC_API_KEY?.trim(),
     models: [
       { id: "fable", efforts: [] },
@@ -125,6 +131,7 @@ const backends = {
     ],
     structured: "native",
     toolPolicies: ["read-only"],
+    readTools: [],
     models: { argv: ["debug", "models"], parse: codexModels },
     invocation: codexInvocation,
     parser: (emit) => new CodexEventParser(emit),
@@ -136,6 +143,7 @@ const backends = {
     ],
     structured: "prompted",
     toolPolicies: ["read-only"],
+    readTools: [],
     models: { argv: ["models"], parse: cursorModels },
     invocation: cursorInvocation,
     parser: (emit) => new CursorEventParser(emit),
@@ -148,6 +156,7 @@ const backends = {
     ],
     structured: "native",
     toolPolicies: ["read-only", "allow", "deny"],
+    readTools: grokReadTools,
     models: { argv: ["models"], parse: grokModels },
     invocation: grokInvocation,
     parser: (emit) => new GrokEventParser(emit),
@@ -184,7 +193,7 @@ function claudeInvocation(request: DriverRequest): CliInvocation {
   // Exclude orchestration tools; leaves cannot re-delegate their assignment.
   const deny = ["Agent", "Workflow"];
   if (request.toolPolicy === "read-only") {
-    argv.push("--tools", "Read,Grep,Glob");
+    argv.push("--tools", claudeReadTools.join(","));
   } else if (request.toolPolicy) {
     if (request.toolPolicy.allow) {
       argv.push("--tools", request.toolPolicy.allow.join(","));
@@ -281,16 +290,16 @@ function grokInvocation(
   schemaPath: string | undefined,
   promptPath: string,
 ): CliInvocation {
-  // Headless grok never reads stdin. Without --no-wait-for-background it keeps
-  // the leaf alive for up to 10 minutes after the turn for background tasks.
+  // Headless grok never reads stdin. --verbatim keeps a task that starts with a
+  // slash command or names a skill from being resolved as one.
   const argv = [
     "--prompt-file",
     promptPath,
+    "--verbatim",
     "--output-format",
     "streaming-messages-json",
     "--always-approve",
     "--no-auto-update",
-    "--no-wait-for-background",
     "--cwd",
     request.cwd,
     "--rules",
@@ -317,15 +326,20 @@ function grokInvocation(
   const deny = ["Agent", "workflow"];
   let allow: string[] | undefined;
   if (request.toolPolicy === "read-only") {
-    allow = ["read_file", "grep", "list_dir"];
+    allow = grokReadTools;
   } else if (request.toolPolicy) {
     allow = request.toolPolicy.allow;
     deny.push(...(request.toolPolicy.deny ?? []));
   }
 
-  // An allowlist keeps the MCP meta-tools unless they are also denied.
+  // Grok reads an empty allowlist as no allowlist, and has no way to grant
+  // nothing. An allowlist keeps the MCP meta-tools unless they are also denied.
   if (allow) {
     const granted = allow;
+    if (!granted.length) {
+      throw new Error("Grok cannot enforce an empty tool allowlist");
+    }
+
     argv.push("--tools", granted.join(","));
     deny.push(
       ...["search_tool", "use_tool"].filter((tool) => !granted.includes(tool)),
@@ -371,6 +385,7 @@ export class CliDriver implements Driver {
         correction: "turn",
         worktree: true,
         toolPolicies: this.backend.toolPolicies,
+        readTools: this.backend.readTools,
         minimal: this.backend.minimal?.() ?? false,
         usage: true,
       },

@@ -38,6 +38,7 @@ async function fixture(
         correction: "turn",
         worktree: true,
         toolPolicies: ["read-only"],
+        readTools: ["Read", "Grep", "Glob"],
         minimal: true,
         usage: true,
         ...options.detection,
@@ -205,6 +206,30 @@ void test("concurrency is enforced and a completed run fully replays", async () 
   assert.deepEqual(second.result, first.result);
   assert.equal(calls, 6);
   assert.ok(second.agents.every((agent) => agent.cached));
+});
+
+void test("corrections narrow an allowlist to the backend's own read tools", async () => {
+  const policies: DriverRequest["toolPolicy"][] = [];
+  const request = await fixture(
+    async (invocation) => {
+      policies.push(invocation.toolPolicy);
+      return { text: "not JSON", exitInfo: { code: 0 } };
+    },
+    {
+      detection: {
+        toolPolicies: ["read-only", "allow", "deny"],
+        readTools: ["read_file", "grep", "list_dir"],
+      },
+    },
+  );
+  request.source =
+    header +
+    "return agent('task', {toolPolicy: {allow: ['read_file', 'run_terminal_cmd'], deny: ['grep']}, schema: {type: 'object', properties: {}}});";
+  await runWorkflow(request);
+  assert.deepEqual(policies.slice(1), [
+    { allow: ["read_file"], deny: ["grep"] },
+    { allow: ["read_file"], deny: ["grep"] },
+  ]);
 });
 
 void test("invalid structured output gets bounded read-only corrections and never reaches the script", async () => {

@@ -413,7 +413,7 @@ void test("Claude minimal mode requires explicit API-key authentication", async 
   );
 });
 
-void test("Grok read-only requests also remove its MCP meta-tools", async (t) => {
+void test("Grok tool restrictions remove its MCP meta-tools and fail closed", async (t) => {
   const cwd = await tempDir("events");
   const argvLog = `${cwd}/argv.jsonl`;
   await installFake(cwd, "fake-claude", "grok");
@@ -440,4 +440,17 @@ void test("Grok read-only requests also remove its MCP meta-tools", async (t) =>
     argv[argv.indexOf("--disallowed-tools") + 1],
     "Agent,workflow,search_tool,use_tool",
   );
+
+  // Grok treats an empty list as no allowlist, so it must not launch.
+  const empty = await new CliDriver("grok")
+    .run({
+      prompt: "format",
+      cwd,
+      systemAppend: "test",
+      toolPolicy: { allow: [] },
+      signal: new AbortController().signal,
+      onEvent: () => {},
+    })
+    .catch((error: unknown) => error);
+  assert.match(String(empty), /empty tool allowlist/);
 });
