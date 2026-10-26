@@ -167,9 +167,11 @@ with a README listing their inputs.
 
 Run in the foreground to see the live tree, or use `--background` for an
 immediate run ID. `workflow-cli wait <id>` shows progress and returns the
-result; Ctrl-C stops waiting without stopping the run. `skip` ends one queued or
-running leaf and `stop` cancels the run. Stop the prior run before editing and
-resuming:
+result; Ctrl-C stops waiting without stopping the run. After starting a
+background run, give the user the exact `workflow-cli wait <id> --runs-dir
+<absolute runs dir>` command, since your harness may not show the run's
+progress. `skip` ends one queued or running leaf and `stop` cancels the run.
+Stop the prior run before editing and resuming:
 
 ```sh
 workflow-cli run ./review.js --background --backend claude
