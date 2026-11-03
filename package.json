@@ -30,7 +30,7 @@
     "ajv": "^8.20.0",
     "commander": "^15.0.0",
     "quickjs-emscripten": "^0.32.0",
-    "zod": "^4.5.4"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",
